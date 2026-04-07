@@ -2,7 +2,7 @@
 FROM node:20-slim as build
 WORKDIR /app
 COPY package*.json ./
-# Zorg dat we echt alles installeren voor de build
+# Cache-busting
 RUN npm install
 COPY . .
 RUN npm run build
