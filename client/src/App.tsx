@@ -33,13 +33,26 @@ function App() {
   const handleLoginSuccess = async (credentialResponse: any) => {
     try {
       const res = await axios.post('/api/auth/google', { credential: credentialResponse.credential });
-      setUser(res.data.user);
-      setToken(res.data.token);
-      localStorage.setItem('token', res.data.token);
-      localStorage.setItem('user', JSON.stringify(res.data.user));
+      saveSession(res.data);
     } catch (err) {
       alert('Login mislukt');
     }
+  };
+
+  const handleMockLogin = async (email: string) => {
+    try {
+      const res = await axios.post('/api/auth/mock', { email });
+      saveSession(res.data);
+    } catch (err) {
+      alert('Mock login mislukt');
+    }
+  };
+
+  const saveSession = (data: any) => {
+    setUser(data.user);
+    setToken(data.token);
+    localStorage.setItem('token', data.token);
+    localStorage.setItem('user', JSON.stringify(data.user));
   };
 
   const runCode = async () => {
@@ -60,9 +73,17 @@ function App() {
         <div style={{ background: 'white', padding: '40px', borderRadius: '20px', boxShadow: '0 10px 40px rgba(0,0,0,0.1)', textAlign: 'center' }}>
           <h1 style={{ marginBottom: '10px' }}>Irishof R Editor</h1>
           <p style={{ color: '#666', marginBottom: '30px' }}>Log in met je schoolaccount om te beginnen</p>
-          <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
-            <GoogleLogin onSuccess={handleLoginSuccess} />
-          </GoogleOAuthProvider>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+              <GoogleLogin onSuccess={handleLoginSuccess} />
+            </GoogleOAuthProvider>
+            <button 
+              onClick={() => handleMockLogin('test@gemini')} 
+              style={{ padding: '10px', background: '#34495e', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+            >
+              Login als test@gemini
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -84,7 +105,8 @@ function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           {user.isAdmin && <span style={{ background: '#e74c3c', padding: '2px 8px', borderRadius: '10px', fontSize: '12px' }}>Admin</span>}
           <span>{user.name}</span>
-          <img src={user.picture} style={{ width: '32px', height: '32px', borderRadius: '50%' }} alt="profile" />
+          <img src={user.picture || 'https://via.placeholder.com/32'} style={{ width: '32px', height: '32px', borderRadius: '50%' }} alt="profile" />
+          <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={{ background: 'transparent', border: '1px solid #555', color: '#ccc', padding: '4px 8px', borderRadius: '4px', fontSize: '12px', cursor: 'pointer' }}>Logout</button>
         </div>
       </header>
 

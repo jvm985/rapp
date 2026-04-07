@@ -61,6 +61,16 @@ const authenticate = (req: any, res: any, next: any) => {
 };
 
 // Routes
+app.post('/api/auth/mock', async (req, res) => {
+  const { email } = req.body;
+  let user = await User.findOne({ email });
+  if (!user) {
+    user = await User.create({ email, name: "Test User", isAdmin: true });
+  }
+  const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, JWT_SECRET);
+  res.json({ token, user });
+});
+
 app.post('/api/auth/google', async (req, res) => {
   const { credential } = req.body;
   const client = new OAuth2Client(GOOGLE_CLIENT_ID);
