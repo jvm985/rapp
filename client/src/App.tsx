@@ -46,12 +46,27 @@ function App() {
     try {
       const res = await axios.get('/api/files', { headers: { Authorization: `Bearer ${token}` } });
       setFiles(res.data);
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error(e);
+      if (axios.isAxiosError(e) && e.response?.status === 401) {
+        handleLogout();
+      }
+    }
   };
 
   const fetchUsers = async () => {
-    const res = await axios.get('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } });
-    setUsers(res.data);
+    try {
+      const res = await axios.get('/api/admin/users', { headers: { Authorization: `Bearer ${token}` } });
+      setUsers(res.data);
+    } catch (e) {}
+  };
+
+  const handleLogout = () => {
+    localStorage.clear();
+    setUser(null);
+    setToken(null);
+    setFiles([]);
+    window.location.reload();
   };
 
   const createFile = async () => {
@@ -174,7 +189,7 @@ function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           {user.isAdmin && <button onClick={() => setShowAdmin(!showAdmin)} style={{ color: showAdmin ? '#3498db' : '#888', background: 'none', border: 'none', cursor: 'pointer' }} title="Beheer"><UserCog/></button>}
           <span style={{ fontSize: '13px' }}>{user.name}</span>
-          <button onClick={() => { localStorage.clear(); window.location.reload(); }} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><LogOut size={18}/></button>
+          <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} title="Uitloggen"><LogOut size={18}/></button>
         </div>
       </header>
 
