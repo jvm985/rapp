@@ -1,0 +1,15 @@
+r app
+------
+bouw iets soortgelijks als rstudio, plaats het in /home/joachim/develop/R
+maar veel eenvoudiger
+het scherm bestaat uit: code (links), feedback van r (eronder), variabelen, files, ... rechtsboven, en grafische output rechtsonder
+user logt in met google, zoek in /home/develop/opdrachten hoe dat moet, doe exact hetzelfde
+alles moet in een docker komen, deployed op r.irishof.cloud (met letsencrypt)
+maak de nodige nginx config
+code pushen op github, en deployen op productie
+user moet bestanden kunnen bewaren en uploaden, doe dit met mongo of zoiets
+user moet bestanden kunnen delen met andere users (keuze r/w)
+zorg dat users tegelijk in een bestand kunnen werken, zoals google docs
+sommige users zijn beheerder, die moeten user beheer kunnen doen, en alle bestanden zien, en andere beheerders toevoegen
+joachim.vanmeirvenne@atheneumkapellen.be is beheerder
+
