@@ -128,7 +128,11 @@ app.post('/api/execute', authenticate, (req, res) => {
   // Wrap code to capture plots automatically
   const wrappedCode = `
     png("${plotFile}", width=800, height=600)
-    ${code}
+    tryCatch({
+      ${code}
+    }, error = function(e) {
+      cat("ERROR: ", e$message, "\n")
+    })
     dev.off()
   `;
   
@@ -140,7 +144,6 @@ app.post('/api/execute', authenticate, (req, res) => {
     let plotBase64 = null;
     if (fs.existsSync(plotFile)) {
       const stats = fs.statSync(plotFile);
-      // Only return if it's not an empty/tiny file (meaning no actual plot was generated)
       if (stats.size > 5000) { 
         plotBase64 = fs.readFileSync(plotFile).toString('base64');
       }

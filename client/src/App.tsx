@@ -84,13 +84,12 @@ function App() {
 
   if (!user) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f0f2f5' }}>
+      <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5' }}>
         <div style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', textAlign: 'center', width: '400px' }}>
           <h1 style={{ marginBottom: '10px', color: '#1a2a3a' }}>Irishof R Editor</h1>
           <p style={{ color: '#666', marginBottom: '30px' }}>Log in om te beginnen</p>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-            {/* Mock Login prominent bovenaan zolang Google niet werkt op het domein */}
             <button 
               onClick={() => handleMockLogin('test@gemini')} 
               style={{ padding: '12px', background: '#4a5568', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px' }}
@@ -114,9 +113,9 @@ function App() {
   }
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#1e1e1e', color: 'white' }}>
+    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: '#1e1e1e', color: 'white' }}>
       {/* Navbar */}
-      <header style={{ height: '50px', background: '#2d2d2d', display: 'flex', alignItems: 'center', padding: '0 20px', borderBottom: '1px solid #333', justifyContent: 'space-between' }}>
+      <header style={{ height: '50px', minHeight: '50px', background: '#2d2d2d', display: 'flex', alignItems: 'center', padding: '0 20px', borderBottom: '1px solid #333', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
           <span style={{ fontWeight: 'bold', fontSize: '18px', color: '#3498db' }}>R Editor</span>
           <button onClick={runCode} style={{ background: '#2ecc71', color: 'white', border: 'none', padding: '6px 15px', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
@@ -129,7 +128,7 @@ function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           {user.isAdmin && <span style={{ background: '#e74c3c', padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 'bold' }}>ADMIN</span>}
           <span style={{ fontSize: '14px', color: '#ccc' }}>{user.name}</span>
-          <img src={user.picture || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'} style={{ width: '30px', height: '32px', borderRadius: '50%', border: '1px solid #555' }} alt="profile" />
+          <img src={user.picture || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'} style={{ width: '30px', height: '30px', borderRadius: '50%', border: '1px solid #555' }} alt="profile" />
           <button onClick={handleLogout} style={{ background: 'transparent', border: 'none', color: '#999', cursor: 'pointer', display: 'flex', alignItems: 'center' }} title="Uitloggen">
             <LogOut size={18} />
           </button>
@@ -140,24 +139,24 @@ function App() {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Left: Code + Console */}
         <div style={{ flex: 2, display: 'flex', flexDirection: 'column', borderRight: '1px solid #333' }}>
-          <div style={{ flex: 1 }}>
+          <div style={{ flex: 1, overflow: 'hidden' }}>
             <Editor
               height="100%"
               defaultLanguage="r"
               theme="vs-dark"
               value={code}
               onChange={(value: any) => setCode(value || '')}
-              options={{ minimap: { enabled: false }, fontSize: 14, wordWrap: 'on' }}
+              options={{ minimap: { enabled: false }, fontSize: 14, wordWrap: 'on', automaticLayout: true }}
             />
           </div>
-          <div style={{ height: '200px', background: '#000', padding: '15px', overflowY: 'auto', borderTop: '1px solid #333' }}>
+          <div style={{ height: '200px', minHeight: '200px', background: '#000', padding: '15px', overflowY: 'auto', borderTop: '1px solid #333' }}>
             <div style={{ color: '#666', fontSize: '11px', fontWeight: 'bold', marginBottom: '5px', letterSpacing: '1px' }}>CONSOLE</div>
             <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: '#2ecc71', fontFamily: 'monospace', fontSize: '13px' }}>{output}</pre>
           </div>
         </div>
 
         {/* Right: Files/Vars + Plots */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: '300px' }}>
           <div style={{ flex: 1, borderBottom: '1px solid #333', padding: '15px', overflowY: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px', color: '#888', fontSize: '12px', fontWeight: 'bold' }}>
               <FileText size={14} /> <span>BESTANDEN</span>
@@ -170,7 +169,7 @@ function App() {
               ))}
             </div>
           </div>
-          <div style={{ flex: 1.5, padding: '15px', background: '#fff', color: '#333', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1.5, padding: '15px', background: '#fff', color: '#333', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ color: '#999', fontSize: '11px', fontWeight: 'bold', marginBottom: '10px' }}>VISUALISATIE (PLOT)</div>
             <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed #eee', borderRadius: '8px', overflow: 'hidden' }}>
               {plot ? (
