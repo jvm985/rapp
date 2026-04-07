@@ -2,7 +2,7 @@
 FROM node:20-slim as build
 WORKDIR /app
 COPY package*.json ./
-# Cache-busting
+# Install ALL dependencies (including devDependencies like TypeScript)
 RUN npm install
 COPY . .
 RUN npm run build

@@ -12,4 +12,5 @@ user moet bestanden kunnen delen met andere users (keuze r/w)
 zorg dat users tegelijk in een bestand kunnen werken, zoals google docs
 sommige users zijn beheerder, die moeten user beheer kunnen doen, en alle bestanden zien, en andere beheerders toevoegen
 joachim.vanmeirvenne@atheneumkapellen.be is beheerder
+maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 
