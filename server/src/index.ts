@@ -37,12 +37,12 @@ const UserSchema = new mongoose.Schema({
 const User = mongoose.model('User', UserSchema);
 
 const FileSchema = new mongoose.Schema({
-  name: String,
-  content: String,
-  owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  name: { type: String, required: true },
+  content: { type: String, default: '' },
+  owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sharedWith: [{
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    permission: { type: String, enum: ['read', 'write'] }
+    email: String, // Simplified sharing by email
+    permission: { type: String, enum: ['read', 'write'], default: 'read' }
   }],
   lastModified: { type: Date, default: Date.now }
 });
@@ -62,12 +62,19 @@ const authenticate = (req: any, res: any, next: any) => {
   }
 };
 
-// Routes
+const adminOnly = (req: any, res: any, next: any) => {
+  if (!req.user.isAdmin) return res.status(403).send('Admin only');
+  next();
+};
+
+// --- Routes ---
+
+// Auth
 app.post('/api/auth/mock', async (req, res) => {
   const { email } = req.body;
   let user = await User.findOne({ email });
   if (!user) {
-    user = await User.create({ email, name: "Test User", isAdmin: true });
+    user = await User.create({ email, name: email.split('@')[0], isAdmin: email === 'test@gemini' || email === 'joachim.vanmeirvenne@atheneumkapellen.be' });
   }
   const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, JWT_SECRET);
   res.json({ token, user });
@@ -77,95 +84,111 @@ app.post('/api/auth/google', async (req, res) => {
   const { credential } = req.body;
   const client = new OAuth2Client(GOOGLE_CLIENT_ID);
   try {
-    const ticket = await client.verifyIdToken({
-      idToken: credential,
-      audience: GOOGLE_CLIENT_ID,
-    });
+    const ticket = await client.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_ID });
     const payload = ticket.getPayload();
     if (!payload || !payload.email) throw new Error('No payload');
-
     let user = await User.findOne({ email: payload.email });
     if (!user) {
-      const isAdmin = payload.email === 'joachim.vanmeirvenne@atheneumkapellen.be';
       user = await User.create({
         email: payload.email,
         name: payload.name,
         picture: payload.picture,
-        isAdmin
+        isAdmin: payload.email === 'joachim.vanmeirvenne@atheneumkapellen.be'
       });
     }
-
     const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, JWT_SECRET);
     res.json({ token, user });
-  } catch (err) {
-    res.status(400).send('Auth failed');
-  }
+  } catch (err) { res.status(400).send('Auth failed'); }
 });
 
-// File routes
+// Files
 app.get('/api/files', authenticate, async (req: any, res) => {
   const files = await File.find({
     $or: [
       { owner: req.user.id },
-      { 'sharedWith.user': req.user.id }
+      { 'sharedWith.email': req.user.email }
     ]
-  }).populate('owner', 'name email');
+  }).populate('owner', 'name email').sort({ lastModified: -1 });
   res.json(files);
 });
 
-app.post('/api/files', authenticate, async (req: any, res) => {
-  const file = await File.create({ ...req.body, owner: req.user.id });
+app.get('/api/files/:id', authenticate, async (req: any, res) => {
+  const file = await File.findById(req.params.id).populate('owner', 'name email');
+  if (!file) return res.status(404).send('Not found');
+  const isOwner = file.owner._id.toString() === req.user.id;
+  const isShared = file.sharedWith.some(s => s.email === req.user.email);
+  if (!isOwner && !isShared && !req.user.isAdmin) return res.status(403).send('No access');
   res.json(file);
 });
 
-// R Execution with Plot Support
+app.post('/api/files', authenticate, async (req: any, res) => {
+  const file = await File.create({ name: req.body.name, content: '', owner: req.user.id });
+  res.json(file);
+});
+
+app.put('/api/files/:id', authenticate, async (req: any, res) => {
+  const file = await File.findById(req.params.id);
+  if (!file) return res.status(404).send('Not found');
+  const canWrite = file.owner.toString() === req.user.id || file.sharedWith.some(s => s.email === req.user.email && s.permission === 'write') || req.user.isAdmin;
+  if (!canWrite) return res.status(403).send('No write access');
+  
+  file.content = req.body.content ?? file.content;
+  file.name = req.body.name ?? file.name;
+  file.sharedWith = req.body.sharedWith ?? file.sharedWith;
+  file.lastModified = new Date();
+  await file.save();
+  res.json(file);
+});
+
+app.delete('/api/files/:id', authenticate, async (req: any, res) => {
+  const file = await File.findById(req.params.id);
+  if (!file || (file.owner.toString() !== req.user.id && !req.user.isAdmin)) return res.status(403).send('Forbidden');
+  await file.deleteOne();
+  res.send('Deleted');
+});
+
+// Admin: User Management
+app.get('/api/admin/users', authenticate, adminOnly, async (req, res) => {
+  const users = await User.find().sort({ email: 1 });
+  res.json(users);
+});
+
+app.post('/api/admin/users/:id/toggle-admin', authenticate, adminOnly, async (req, res) => {
+  const user = await User.findById(req.params.id);
+  if (user) {
+    user.isAdmin = !user.isAdmin;
+    await user.save();
+  }
+  res.send('Done');
+});
+
+// R Execution
 app.post('/api/execute', authenticate, (req, res) => {
   const { code } = req.body;
   const id = Date.now();
   const tempFile = path.join('/tmp', `script_${id}.R`);
   const plotFile = path.join('/tmp', `plot_${id}.png`);
-  
-  // Wrap code to capture plots automatically
-  const wrappedCode = `
-    png("${plotFile}", width=800, height=600)
-    tryCatch({
-      ${code}
-    }, error = function(e) {
-      cat("ERROR: ", e$message, "\n")
-    })
-    dev.off()
-  `;
-  
+  const wrappedCode = `png("${plotFile}", width=800, height=600)\ntryCatch({${code}}, error=function(e){cat("ERROR:", e$message, "\n")})\ndev.off()`;
   fs.writeFileSync(tempFile, wrappedCode);
-
   exec(`Rscript ${tempFile}`, (error, stdout, stderr) => {
     if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-    
     let plotBase64 = null;
     if (fs.existsSync(plotFile)) {
-      const stats = fs.statSync(plotFile);
-      if (stats.size > 5000) { 
-        plotBase64 = fs.readFileSync(plotFile).toString('base64');
-      }
+      if (fs.statSync(plotFile).size > 5000) plotBase64 = fs.readFileSync(plotFile).toString('base64');
       fs.unlinkSync(plotFile);
     }
-    
     res.json({ stdout, stderr, plot: plotBase64, error: error?.message });
   });
 });
 
-// Socket.io for Real-time
+// Socket.io for Live Sync
 io.on('connection', (socket) => {
-  socket.on('join-file', (fileId) => {
-    socket.join(fileId);
-  });
-
+  socket.on('join-file', (fileId) => socket.join(fileId));
   socket.on('edit-file', (data) => {
+    // data: { fileId, content, userEmail }
     socket.to(data.fileId).emit('file-updated', data);
   });
 });
 
 const PORT = process.env.PORT || 3001;
-httpServer.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));
