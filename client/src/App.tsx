@@ -1,12 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 import Editor from '@monaco-editor/react';
-import { Play, Save, Share2, Users, FileText, Layout, Settings } from 'lucide-react';
-import io from 'socket.io-client';
+import { Play, Save, FileText, Layout } from 'lucide-react';
 import axios from 'axios';
 
 const GOOGLE_CLIENT_ID = '339058057860-i6ne31mqs27mqm2ulac7al9vi26pmgo1.apps.googleusercontent.com';
-const socket = io(import.meta.env.VITE_API_URL || 'http://localhost:3001');
 
 function App() {
   const [user, setUser] = useState<any>(JSON.parse(localStorage.getItem('user') || 'null'));
@@ -14,7 +12,6 @@ function App() {
   const [code, setCode] = useState('# Welkom bij de simpele R Editor\nprint("Hallo Irishof!")\n\n# Probeer een plot\n# plot(rnorm(100))');
   const [output, setOutput] = useState('');
   const [files, setFiles] = useState([]);
-  const [activeFile, setActiveTab] = useState<any>(null);
 
   useEffect(() => {
     if (token) {
@@ -87,7 +84,7 @@ function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
           {user.isAdmin && <span style={{ background: '#e74c3c', padding: '2px 8px', borderRadius: '10px', fontSize: '12px' }}>Admin</span>}
           <span>{user.name}</span>
-          <img src={user.picture} style={{ width: '32px', height: '32px', borderRadius: '50%' }} />
+          <img src={user.picture} style={{ width: '32px', height: '32px', borderRadius: '50%' }} alt="profile" />
         </div>
       </header>
 
@@ -101,7 +98,7 @@ function App() {
               defaultLanguage="r"
               theme="vs-dark"
               value={code}
-              onChange={(value) => setCode(value || '')}
+              onChange={(value: any) => setCode(value || '')}
               options={{ minimap: { enabled: false }, fontSize: 14 }}
             />
           </div>
