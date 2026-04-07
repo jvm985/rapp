@@ -41,7 +41,7 @@ const FileSchema = new mongoose.Schema({
   content: { type: String, default: '' },
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sharedWith: [{
-    email: String, // Simplified sharing by email
+    email: String,
     permission: { type: String, enum: ['read', 'write'], default: 'read' }
   }],
   lastModified: { type: Date, default: Date.now }
@@ -74,7 +74,11 @@ app.post('/api/auth/mock', async (req, res) => {
   const { email } = req.body;
   let user = await User.findOne({ email });
   if (!user) {
-    user = await User.create({ email, name: email.split('@')[0], isAdmin: email === 'test@gemini' || email === 'joachim.vanmeirvenne@atheneumkapellen.be' });
+    user = await User.create({ 
+      email, 
+      name: email.split('@')[0], 
+      isAdmin: email === 'test@gemini.com' || email === 'joachim.vanmeirvenne@atheneumkapellen.be' 
+    });
   }
   const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, JWT_SECRET);
   res.json({ token, user });
@@ -103,12 +107,16 @@ app.post('/api/auth/google', async (req, res) => {
 
 // Files
 app.get('/api/files', authenticate, async (req: any, res) => {
-  const files = await File.find({
+  let query: any = {
     $or: [
       { owner: req.user.id },
       { 'sharedWith.email': req.user.email }
     ]
-  }).populate('owner', 'name email').sort({ lastModified: -1 });
+  };
+  // Admin can see all files
+  if (req.user.isAdmin) query = {};
+  
+  const files = await File.find(query).populate('owner', 'name email').sort({ lastModified: -1 });
   res.json(files);
 });
 
@@ -162,22 +170,61 @@ app.post('/api/admin/users/:id/toggle-admin', authenticate, adminOnly, async (re
   res.send('Done');
 });
 
-// R Execution
+// R Execution with Plot & Variable Support
 app.post('/api/execute', authenticate, (req, res) => {
   const { code } = req.body;
   const id = Date.now();
   const tempFile = path.join('/tmp', `script_${id}.R`);
   const plotFile = path.join('/tmp', `plot_${id}.png`);
-  const wrappedCode = `png("${plotFile}", width=800, height=600)\ntryCatch({${code}}, error=function(e){cat("ERROR:", e$message, "\n")})\ndev.off()`;
+  const varFile = path.join('/tmp', `vars_${id}.json`);
+  
+  // Wrap code to capture plots AND variables
+  const wrappedCode = `
+    library(jsonlite)
+    png("${plotFile}", width=800, height=600)
+    tryCatch({
+      ${code}
+    }, error = function(e) {
+      cat("ERROR:", e$message, "\n")
+    })
+    dev.off()
+    
+    # Capture variables
+    all_vars <- ls()
+    # Filter out internal or huge objects for the prototype
+    var_list <- list()
+    for (v in all_vars) {
+      val <- get(v)
+      if (is.vector(val) || is.matrix(val) || is.data.frame(val)) {
+        var_list[[v]] <- list(
+          type = class(val)[1],
+          summary = paste(capture.output(str(val)), collapse="\\n")
+        )
+      }
+    }
+    write_json(var_list, "${varFile}")
+  `;
+  
   fs.writeFileSync(tempFile, wrappedCode);
+
   exec(`Rscript ${tempFile}`, (error, stdout, stderr) => {
     if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+    
     let plotBase64 = null;
     if (fs.existsSync(plotFile)) {
       if (fs.statSync(plotFile).size > 5000) plotBase64 = fs.readFileSync(plotFile).toString('base64');
       fs.unlinkSync(plotFile);
     }
-    res.json({ stdout, stderr, plot: plotBase64, error: error?.message });
+
+    let variables = {};
+    if (fs.existsSync(varFile)) {
+      try {
+        variables = JSON.parse(fs.readFileSync(varFile, 'utf8'));
+      } catch (e) {}
+      fs.unlinkSync(varFile);
+    }
+    
+    res.json({ stdout, stderr, plot: plotBase64, variables, error: error?.message });
   });
 });
 
@@ -185,7 +232,6 @@ app.post('/api/execute', authenticate, (req, res) => {
 io.on('connection', (socket) => {
   socket.on('join-file', (fileId) => socket.join(fileId));
   socket.on('edit-file', (data) => {
-    // data: { fileId, content, userEmail }
     socket.to(data.fileId).emit('file-updated', data);
   });
 });

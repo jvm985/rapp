@@ -20,7 +20,7 @@ AUTH_RES=$(curl -s -X POST "$API_URL/auth/mock" -H "Content-Type: application/js
 TOKEN=$(echo "$AUTH_RES" | grep -oP '"token":"\K[^"]+')
 
 if [ -n "$TOKEN" ]; then
-    echo "✅ OK (Received JWT token)"
+    echo "✅ OK (Received JWT token)"; echo "DEBUG: $AUTH_RES"
 else
     echo "❌ FAILED (No token received: $AUTH_RES)"
 fi
