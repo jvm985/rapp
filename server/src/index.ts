@@ -50,7 +50,9 @@ const File = mongoose.model('File', FileSchema);
 
 // Auth Middleware
 const authenticate = (req: any, res: any, next: any) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).send('No authorization header');
+  const token = authHeader.split(' ')[1];
   if (!token) return res.status(401).send('No token');
   try {
     req.user = jwt.verify(token, JWT_SECRET);
@@ -116,15 +118,36 @@ app.post('/api/files', authenticate, async (req: any, res) => {
   res.json(file);
 });
 
-// R Execution
+// R Execution with Plot Support
 app.post('/api/execute', authenticate, (req, res) => {
   const { code } = req.body;
-  const tempFile = path.join('/tmp', `script_${Date.now()}.R`);
-  fs.writeFileSync(tempFile, code);
+  const id = Date.now();
+  const tempFile = path.join('/tmp', `script_${id}.R`);
+  const plotFile = path.join('/tmp', `plot_${id}.png`);
+  
+  // Wrap code to capture plots automatically
+  const wrappedCode = `
+    png("${plotFile}", width=800, height=600)
+    ${code}
+    dev.off()
+  `;
+  
+  fs.writeFileSync(tempFile, wrappedCode);
 
   exec(`Rscript ${tempFile}`, (error, stdout, stderr) => {
     if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-    res.json({ stdout, stderr, error: error?.message });
+    
+    let plotBase64 = null;
+    if (fs.existsSync(plotFile)) {
+      const stats = fs.statSync(plotFile);
+      // Only return if it's not an empty/tiny file (meaning no actual plot was generated)
+      if (stats.size > 5000) { 
+        plotBase64 = fs.readFileSync(plotFile).toString('base64');
+      }
+      fs.unlinkSync(plotFile);
+    }
+    
+    res.json({ stdout, stderr, plot: plotBase64, error: error?.message });
   });
 });
 
@@ -135,9 +158,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('edit-file', (data) => {
-    // data: { fileId, content, user }
     socket.to(data.fileId).emit('file-updated', data);
-    // Debounced save to DB could be here
   });
 });
 
