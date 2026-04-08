@@ -141,7 +141,6 @@ app.get('/api/files', authenticate, async (req: any, res) => {
 });
 
 app.get('/api/shared-files', authenticate, async (req: any, res) => {
-  // Find all folders shared with this user
   const sharedFolders = await File.find({
     isFolder: true,
     $or: [
@@ -150,12 +149,8 @@ app.get('/api/shared-files', authenticate, async (req: any, res) => {
     ]
   });
 
-  // Construct a list of paths that are shared
   const sharedPaths = sharedFolders.map(f => ({ owner: f.owner, fullPath: f.path + f.name + '/' }));
 
-  // Find all files/folders that are:
-  // 1. Directly shared
-  // 2. OR inside a shared folder (by the same owner)
   const query = {
     owner: { $ne: req.user.id },
     $or: [
@@ -165,19 +160,21 @@ app.get('/api/shared-files', authenticate, async (req: any, res) => {
   };
 
   const directlyShared = await File.find(query).populate('owner', 'name email');
-  
-  // Now add children of shared folders
   const additionalFiles: any[] = [];
   for (const sp of sharedPaths) {
     const children = await File.find({
       owner: sp.owner,
       path: new RegExp('^' + sp.fullPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
-      _id: { $nin: directlyShared.map(d => d._id) } // Avoid duplicates
+      _id: { $nin: directlyShared.map(d => d._id) }
     }).populate('owner', 'name email');
     additionalFiles.push(...children);
   }
 
-  const allShared = [...directlyShared, ...additionalFiles].sort({ isFolder: -1, name: 1 });
+  const allShared = [...directlyShared, ...additionalFiles].sort((a, b) => {
+    if (a.isFolder && !b.isFolder) return -1;
+    if (!a.isFolder && b.isFolder) return 1;
+    return a.name.localeCompare(b.name);
+  });
   res.json(allShared);
 });
 
@@ -217,12 +214,10 @@ app.put('/api/files/:id', authenticate, async (req: any, res) => {
   const file = await File.findById(req.params.id);
   if (!file) return res.status(404).send('Not found');
   
-  // Recursive write access check: if any parent is shared with write access
   const isOwner = file.owner.toString() === req.user.id;
   let isSharedWrite = file.sharedWith.some(s => (s.email === req.user.email || s.email === 'everyone') && s.permission === 'write');
   
   if (!isOwner && !isSharedWrite && !req.user.isAdmin) {
-    // Check parents
     const pathParts = file.path.split('/').filter(Boolean);
     let currentPath = '/';
     for (const part of pathParts) {
@@ -284,7 +279,6 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
   const plotPath = `/tmp/plot_${userId}.png`;
   const workDir = `/tmp/r_work_${userId}`;
 
-  // 1. Prepare working directory with user's files
   if (!fs.existsSync(workDir)) fs.mkdirSync(workDir);
   const pathFiles = await File.find({ owner: userId, path: currentPath, isFolder: false });
   for (const f of pathFiles) {
@@ -335,7 +329,6 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
       let finalOutput = session.output;
       finalOutput = finalOutput.split(sentinel)[0];
       
-      // Intensive filtering of ALL wrapper noise
       finalOutput = finalOutput.replace(new RegExp(`source\\("${scriptPath}".*\\)`, 'g'), '');
       finalOutput = finalOutput.replace(/options\(device = function\(\.\.\.\) \{.*\n.*\n\s*\}\)/g, '');
       finalOutput = finalOutput.replace(/setwd\(".*"\)/g, '');
@@ -345,7 +338,6 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
       finalOutput = finalOutput.replace(/if \(dev\.cur\(\) > 1\) dev\.off\(\)/g, '');
       finalOutput = finalOutput.replace(/cat\("SENTINEL_DONE_.*\n/g, '');
       
-      // Clean up prompts and empty lines
       finalOutput = finalOutput.replace(/^> /gm, '').replace(/^\+ /gm, '').trim();
 
       const varFile = `/tmp/vars_${userId}.json`;
@@ -366,7 +358,7 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
         const cleanStdout = finalOutput.replace(/null device\s*\n\s*1\s*/g, '').trim();
         res.json({ stdout: cleanStdout, plot: plotBase64, variables });
         if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-      }, 150); // Increased wait for PNG flush
+      }, 100);
     }
   }, 100);
 });
