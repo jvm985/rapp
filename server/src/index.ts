@@ -69,15 +69,12 @@ const getRSession = (userId: string) => {
   const rProcess = spawn('R', ['--vanilla', '--quiet', '--interactive']);
   const session = { process: rProcess, output: '' };
   
-  rProcess.stdout.on('data', (data) => { 
-    session.output += data.toString(); 
-  });
-  rProcess.stderr.on('data', (data) => { 
-    session.output += data.toString(); 
-  });
+  rProcess.stdout.on('data', (data) => { session.output += data.toString(); });
+  rProcess.stderr.on('data', (data) => { session.output += data.toString(); });
   
+  // Multiple plot support with %03d
   rProcess.stdin.write(`options(device = function(...) { 
-    png(file = "/tmp/plot_${userId}.png", width = 800, height = 600)
+    png(file = "/tmp/plot_${userId}_%03d.png", width = 800, height = 600)
   })\n`);
 
   userSessions.set(userId, session);
@@ -141,6 +138,7 @@ app.get('/api/files', authenticate, async (req: any, res) => {
 });
 
 app.get('/api/shared-files', authenticate, async (req: any, res) => {
+  // Find all folders shared with this user
   const sharedFolders = await File.find({
     isFolder: true,
     $or: [
@@ -192,6 +190,7 @@ app.post('/api/files', authenticate, async (req: any, res) => {
     }
   }
   const file = await File.create({ ...req.body, owner: req.user.id });
+  io.emit('files-changed', { ownerId: req.user.id }); // Notify for instant refresh
   res.json(file);
 });
 
@@ -207,6 +206,7 @@ app.post('/api/files/:id/clone', authenticate, async (req: any, res) => {
     isFolder: file.isFolder,
     size: file.size
   });
+  io.emit('files-changed', { ownerId: req.user.id });
   res.json(newFile);
 });
 
@@ -249,13 +249,16 @@ app.put('/api/files/:id', authenticate, async (req: any, res) => {
   
   file.lastModified = new Date();
   await file.save();
+  io.emit('files-changed', { ownerId: file.owner });
   res.json(file);
 });
 
 app.delete('/api/files/:id', authenticate, async (req: any, res) => {
   const file = await File.findById(req.params.id);
   if (!file || (file.owner.toString() !== req.user.id && !req.user.isAdmin)) return res.status(403).send('Forbidden');
+  const ownerId = file.owner;
   await file.deleteOne();
+  io.emit('files-changed', { ownerId });
   res.send('Deleted');
 });
 
@@ -276,17 +279,19 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
   const { code, currentPath } = req.body;
   const userId = req.user.id;
   const session = getRSession(userId);
-  const plotPath = `/tmp/plot_${userId}.png`;
   const workDir = `/tmp/r_work_${userId}`;
 
+  // Prepare working directory
   if (!fs.existsSync(workDir)) fs.mkdirSync(workDir);
   const pathFiles = await File.find({ owner: userId, path: currentPath, isFolder: false });
   for (const f of pathFiles) {
     fs.writeFileSync(path.join(workDir, f.name), f.draftContent || f.content || '');
   }
 
-  session.output = ''; 
+  // Clear previous plots for this user
+  fs.readdirSync('/tmp').filter(f => f.startsWith(`plot_${userId}_`)).forEach(f => fs.unlinkSync(path.join('/tmp', f)));
 
+  session.output = ''; 
   const sentinel = `SENTINEL_DONE_${Date.now()}`;
   const scriptPath = `/tmp/script_${userId}.R`;
   
@@ -300,17 +305,18 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
       ${code}
     }, error = function(e) { cat("ERROR:", e$message, "\\n") })
     
-    # Cleanup and capture
-    if (dev.cur() > 1) dev.off()
+    # Finalize plots
+    while(dev.cur() > 1) dev.off()
     cat("${sentinel}\\n")
     
-    # Silently capture variables
+    # Capture variables - filter system ones
     var_list <- list()
-    all_objs <- ls(all.names=TRUE)
+    all_objs <- ls(all.names=FALSE)
     for (v in all_objs) {
       if (v == "var_list" || v == "all_objs") next
       val <- get(v)
-      if (is.vector(val) || is.matrix(val) || is.data.frame(val)) {
+      # Only show non-functions and non-environments
+      if (!is.function(val) && !is.environment(val)) {
         var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
       }
     }
@@ -323,22 +329,24 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
   let checkCount = 0;
   const waitForDone = setInterval(() => {
     checkCount++;
-    if (session.output.includes(sentinel) || checkCount > 150) {
+    if (session.output.includes(sentinel) || checkCount > 200) {
       clearInterval(waitForDone);
       
-      let finalOutput = session.output;
-      finalOutput = finalOutput.split(sentinel)[0];
+      let finalOutput = session.output.split(sentinel)[0];
       
+      // Cleanup all wrapper code echoes
       finalOutput = finalOutput.replace(new RegExp(`source\\("${scriptPath}".*\\)`, 'g'), '');
       finalOutput = finalOutput.replace(/options\(device = function\(\.\.\.\) \{.*\n.*\n\s*\}\)/g, '');
       finalOutput = finalOutput.replace(/setwd\(".*"\)/g, '');
       finalOutput = finalOutput.replace(/options\(warn=-1\)/g, '');
       finalOutput = finalOutput.replace(/suppressMessages\(library\(jsonlite, quietly=TRUE\)\)/g, '');
       finalOutput = finalOutput.replace(/tryCatch\(\{/g, '');
-      finalOutput = finalOutput.replace(/if \(dev\.cur\(\) > 1\) dev\.off\(\)/g, '');
+      finalOutput = finalOutput.replace(/while\(dev\.cur\(\) > 1\) dev\.off\(\)/g, '');
       finalOutput = finalOutput.replace(/cat\("SENTINEL_DONE_.*\n/g, '');
       
-      finalOutput = finalOutput.replace(/^> /gm, '').replace(/^\+ /gm, '').trim();
+      // Remove any line containing the script path (some R versions echo it differently)
+      const lines = finalOutput.split('\n').filter(l => !l.includes(scriptPath) && !l.includes('ryCatch') && !l.includes('dev.cur'));
+      finalOutput = lines.join('\n').replace(/^> /gm, '').replace(/^\+ /gm, '').trim();
 
       const varFile = `/tmp/vars_${userId}.json`;
       let variables = {};
@@ -349,23 +357,25 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
           fs.unlinkSync(varFile);
         }
 
-        let plotBase64 = null;
-        if (fs.existsSync(plotPath)) {
-          if (fs.statSync(plotPath).size > 5000) plotBase64 = fs.readFileSync(plotPath).toString('base64');
-          fs.unlinkSync(plotPath);
-        }
+        // Capture ALL generated plots
+        const plotFiles = fs.readdirSync('/tmp').filter(f => f.startsWith(`plot_${userId}_`)).sort();
+        const plots = plotFiles.map(f => fs.readFileSync(path.join('/tmp', f)).toString('base64'));
+        plotFiles.forEach(f => fs.unlinkSync(path.join('/tmp', f)));
 
         const cleanStdout = finalOutput.replace(/null device\s*\n\s*1\s*/g, '').trim();
-        res.json({ stdout: cleanStdout, plot: plotBase64, variables });
+        res.json({ stdout: cleanStdout, plots, variables });
         if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-      }, 100);
+      }, 200);
     }
   }, 100);
 });
 
 io.on('connection', (socket) => {
   socket.on('join-file', (fileId) => socket.join(fileId));
-  socket.on('edit-file', (data) => socket.to(data.fileId).emit('file-updated', data));
+  socket.on('edit-file', (data) => {
+    // Broadcast edit to everyone else in the file room
+    socket.to(data.fileId).emit('file-updated', data);
+  });
 });
 
 const PORT = process.env.PORT || 3001;

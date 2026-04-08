@@ -78,12 +78,28 @@ function App() {
     }
   }, [openFiles, token]);
 
+  // Handle room joining when file changes
+  useEffect(() => {
+    if (activeFileId) {
+      socket.emit('join-file', activeFileId);
+    }
+  }, [activeFileId]);
+
   useEffect(() => {
     const handleUpdate = (data: any) => {
+      // Only update if it's the active file and NOT from self
       setOpenFiles(prev => prev.map(f => f._id === data.fileId ? { ...f, draftContent: data.content } : f));
     };
+    const handleFilesChanged = () => {
+      fetchFiles();
+      fetchSharedFiles();
+    };
     socket.on('file-updated', handleUpdate);
-    return () => { socket.off('file-updated'); };
+    socket.on('files-changed', handleFilesChanged);
+    return () => { 
+      socket.off('file-updated'); 
+      socket.off('files-changed');
+    };
   }, []);
 
   useEffect(() => {
@@ -123,7 +139,7 @@ function App() {
     const name = prompt(isFolder ? 'Map naam:' : 'Bestandsnaam:');
     if (!name) return;
     const res = await axios.post('/api/files', { name, isFolder, path: currentPath }, { headers: { Authorization: `Bearer ${token}` } });
-    fetchFiles();
+    // fetchFiles is now triggered via socket.io emit from server
     if (!isFolder) openFile(res.data);
   };
 
@@ -157,7 +173,6 @@ function App() {
     await axios.put(`/api/files/${activeFileId}`, { content: activeFile.draftContent }, { headers: { Authorization: `Bearer ${token}` } });
     setOpenFiles(prev => prev.map(f => f._id === activeFileId ? { ...f, content: activeFile.draftContent } : f));
     setIsSaving(false); 
-    fetchFiles();
   };
 
   const saveDraft = async (id: string, content: string) => {
@@ -208,14 +223,14 @@ function App() {
       const res = await axios.post('/api/execute', { code: codeToRun, currentPath }, { headers: { Authorization: `Bearer ${token}` } });
       const newOutput = (res.data.stdout || res.data.stderr || res.data.error || '').trim();
       if (newOutput) setOutput(prev => prev + newOutput + '\n');
-      if (res.data.plot) {
-        const newPlot = `data:image/png;base64,${res.data.plot}`;
+      if (res.data.plots && res.data.plots.length > 0) {
+        const newPlots = res.data.plots.map((p: string) => `data:image/png;base64,${p}`);
         setPlots(prev => {
-          const next = [...prev, newPlot];
-          setPlotIndex(next.length - 1); // Auto-jump to latest
+          const next = [...prev, ...newPlots];
+          setPlotIndex(next.length - 1); 
           return next;
         });
-        setRightTab('files'); // Ensure Plot tab is active
+        setRightTab('files'); 
       }
       if (res.data.variables) setVariables(res.data.variables);
     } catch (err) { setOutput(prev => prev + 'Fout bij uitvoeren.\n'); }
@@ -234,7 +249,6 @@ function App() {
     const newName = prompt('Nieuwe naam:', file.name);
     if (!newName || newName === file.name) return;
     await axios.put(`/api/files/${id}`, { name: newName }, { headers: { Authorization: `Bearer ${token}` } });
-    fetchFiles();
   };
 
   const deleteSelected = async () => {
@@ -245,7 +259,6 @@ function App() {
       if (activeFileId === id) { setActiveFileId(null); setOpenFiles(prev => prev.filter(f => f._id !== id)); }
     }
     setSelectedFileIds(new Set());
-    fetchFiles();
   };
 
   const handleShareSubmit = async (email: string, permission: 'read' | 'write') => {
@@ -253,7 +266,6 @@ function App() {
     const file = (sidebarTab === 'my' ? files : sharedFiles).find(f => f._id === fileId);
     const sharedWith = [...(file.sharedWith || []), { email, permission }];
     await axios.put(`/api/files/${fileId}`, { sharedWith }, { headers: { Authorization: `Bearer ${token}` } });
-    fetchFiles();
     setShowShareModal(null);
   };
 
@@ -274,7 +286,6 @@ function App() {
       }
     }
     setClipboard(null);
-    fetchFiles();
   };
 
   const downloadSelected = () => {
@@ -315,7 +326,6 @@ function App() {
           }
           const apiRes = await axios.post('/api/files', { name: file.name, path: uploadPath }, { headers: { Authorization: `Bearer ${token}` } });
           await axios.put(`/api/files/${apiRes.data._id}`, { content }, { headers: { Authorization: `Bearer ${token}` } });
-          fetchFiles();
         };
         reader.readAsText(file);
       }
@@ -542,8 +552,14 @@ function App() {
                         <button onClick={() => setPlotIndex(Math.min(plots.length - 1, plotIndex + 1))} className="plot-btn"><ChevronRight size={14}/></button>
                       </div>
                       <div style={{ display: 'flex', gap: '5px' }}>
-                        <a href={plots[plotIndex]} download={`plot_${plotIndex + 1}.png`} className="plot-btn"><Download size={14}/></a>
-                        <button onClick={() => { setPlots([]); setPlotIndex(-1); }} className="plot-btn" style={{ color: '#e74c3c' }}><Trash2 size={14}/></button>
+                        <button onClick={() => { const a = document.createElement('a'); a.href = plots[plotIndex]; a.download = `plot_${plotIndex + 1}.png`; a.click(); }} className="plot-btn"><Download size={14}/></button>
+                        <button onClick={() => { 
+                          if (confirm('Wil je alleen de huidige plot verwijderen (ja) of alle plots (nee)?')) {
+                            const next = [...plots]; next.splice(plotIndex, 1); setPlots(next); setPlotIndex(Math.max(0, plotIndex - 1));
+                          } else {
+                            setPlots([]); setPlotIndex(-1);
+                          }
+                        }} className="plot-btn" style={{ color: '#e74c3c' }}><Trash2 size={14}/></button>
                       </div>
                     </div>
                   )}
