@@ -67,6 +67,8 @@ const adminOnly = (req: any, res: any, next: any) => {
   next();
 };
 
+// --- Routes ---
+
 // Auth
 app.post('/api/auth/mock', async (req, res) => {
   const { email } = req.body;
@@ -96,15 +98,42 @@ app.post('/api/auth/google', async (req, res) => {
 
 // Files
 app.get('/api/files', authenticate, async (req: any, res) => {
-  let query: any = { $or: [{ owner: req.user.id }, { 'sharedWith.email': req.user.email }] };
-  if (req.user.isAdmin) query = {};
+  let query: any;
+  if (req.user.isAdmin) {
+    query = {}; // Admin sees all
+  } else {
+    query = { owner: req.user.id }; // Regular users see only their own in "My Files"
+  }
   const files = await File.find(query).populate('owner', 'name email').sort({ isFolder: -1, name: 1 });
+  res.json(files);
+});
+
+// Shared files
+app.get('/api/shared-files', authenticate, async (req: any, res) => {
+  const files = await File.find({ 
+    'sharedWith.email': req.user.email,
+    owner: { $ne: req.user.id } // Exclude self-owned shared files
+  }).populate('owner', 'name email').sort({ lastModified: -1 });
   res.json(files);
 });
 
 app.post('/api/files', authenticate, async (req: any, res) => {
   const file = await File.create({ ...req.body, owner: req.user.id });
   res.json(file);
+});
+
+// Clone file
+app.post('/api/files/:id/clone', authenticate, async (req: any, res) => {
+  const file = await File.findById(req.params.id);
+  if (!file) return res.status(404).send('Not found');
+  const newFile = await File.create({
+    name: `${file.name} (Copy)`,
+    content: file.content,
+    owner: req.user.id,
+    path: req.body.path || '/',
+    isFolder: file.isFolder
+  });
+  res.json(newFile);
 });
 
 app.put('/api/files/:id', authenticate, async (req: any, res) => {

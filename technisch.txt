@@ -1,0 +1,49 @@
+R App - Technische Documentatie
+==============================
+
+Architectuur
+------------
+De applicatie is een full-stack R IDE gebouwd met de volgende componenten:
+- Frontend: React (TypeScript) met Vite. Gebruikt Monaco Editor voor code-editing en Socket.io voor real-time samenwerking.
+- Backend: Node.js (Express) met Socket.io. Voert R-code uit via 'child_process.exec' en vangt PNG-plots op.
+- Database: MongoDB voor het opslaan van gebruikers, bestanden en share-permissies.
+- Containerisatie: Docker & Docker Compose.
+
+Projectstructuur (/home/joachim/develop/R)
+------------------------------------------
+- client/: React frontend broncode.
+- server/: Node.js backend broncode.
+- data/db: Persistente MongoDB opslag.
+- docker-compose.yml: Orkestratie van de services.
+- deploy.sh: Deployment script voor productie.
+
+Belangrijke Functionaliteiten
+-----------------------------
+1. Real-time Samenwerking:
+   - Gebruikt Socket.io om code-wijzigingen live te synchroniseren tussen gebruikers die hetzelfde bestand open hebben.
+   - Deel-functionaliteit (Read/Write permissies) is opgeslagen in de File-documenten in Mongo.
+
+2. R Executie & Plots:
+   - R-code wordt gewrapped in een script dat 'png()' aanroept om grafische output naar /tmp te schrijven.
+   - De backend leest deze PNG, converteert naar Base64 en stuurt het naar de front-end.
+   - Bevat een 'history' systeem voor plots (vorige/volgende navigatie).
+
+3. File Manager:
+   - Ondersteunt mappen en geneste structuren via een 'path' attribuut in de database.
+   - Bevat acties: Knippen, Kopiëren, Plakken, Hernoemen, Verwijderen, Downloaden en Delen.
+   - Apart tabblad voor "Gedeeld met mij".
+
+4. Admin:
+   - Gebruikers met 'isAdmin: true' kunnen alle bestanden zien en andere gebruikers beheerder maken.
+   - Eerste admin: joachim.vanmeirvenne@atheneumkapellen.be
+
+Deployment Informatie
+---------------------
+- De app draait op r.irishof.cloud op poort 8018 (intern).
+- Nginx op de host fungeert als reverse proxy met SSL (Certbot).
+- Client wordt nu VOLLEDIG gebouwd binnen Docker op de productie server (geen scp van dist meer nodig).
+
+Testgebruikers
+--------------
+- test@gemini.com: Standaard admin test account voor verificatie.
+- Gebruik 'Direct inloggen' knop op de inlogpagina voor snelle toegang.
