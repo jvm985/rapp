@@ -5,7 +5,7 @@ import {
   Play, Save, FileText, Layout, LogOut, Plus, Trash2, UserCog, X, 
   FolderPlus, Folder, Database, ChevronRight, Home, Eraser, 
   Download, Copy, Scissors, Clipboard, Share2, Edit3, ChevronLeft,
-  Upload, MoreHorizontal, RefreshCw
+  Upload, MoreHorizontal, RefreshCw, Users, Trash
 } from 'lucide-react';
 import io from 'socket.io-client';
 import axios from 'axios';
@@ -88,6 +88,7 @@ function App() {
 
   useEffect(() => {
     const handleUpdate = (data: any) => {
+      // Update draftContent if someone else edited
       setOpenFiles(prev => prev.map(f => f._id === data.fileId ? { ...f, draftContent: data.content } : f));
     };
     const handleFilesChanged = () => {
@@ -270,13 +271,25 @@ function App() {
     fetchFiles();
   };
 
-  const handleShareSubmit = async (email: string, permission: 'read' | 'write') => {
+  const handleShareChange = async (email: string, permission: 'read' | 'write' | 'remove') => {
     const fileId = showShareModal._id;
     const file = (sidebarTab === 'my' ? files : sharedFiles).find(f => f._id === fileId);
-    const sharedWith = [...(file.sharedWith || []), { email, permission }];
-    await axios.put(`/api/files/${fileId}`, { sharedWith }, { headers: { Authorization: `Bearer ${token}` } });
+    let newSharedWith = [...(file.sharedWith || [])];
+    
+    if (permission === 'remove') {
+      newSharedWith = newSharedWith.filter(s => s.email !== email);
+    } else {
+      const existing = newSharedWith.find(s => s.email === email);
+      if (existing) {
+        existing.permission = permission;
+      } else {
+        newSharedWith.push({ email, permission });
+      }
+    }
+    
+    const res = await axios.put(`/api/files/${fileId}`, { sharedWith: newSharedWith }, { headers: { Authorization: `Bearer ${token}` } });
+    setShowShareModal(res.data);
     fetchFiles();
-    setShowShareModal(null);
   };
 
   const copySelected = (action: 'copy' | 'cut') => {
@@ -345,12 +358,6 @@ function App() {
     input.click();
   };
 
-  const handleLoginSuccess = async (res: any) => {
-    const { data } = await axios.post('/api/auth/google', { credential: res.credential });
-    setUser(data.user); setToken(data.token);
-    localStorage.setItem('token', data.token); localStorage.setItem('user', JSON.stringify(data.user));
-  };
-
   const handleMockLogin = (email: string) => {
     axios.post('/api/auth/mock', { email }).then(r => { 
       setUser(r.data.user); setToken(r.data.token); 
@@ -376,6 +383,12 @@ function App() {
     window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
     return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
   }, []);
+
+  const handleLoginSuccess = async (res: any) => {
+    const { data } = await axios.post('/api/auth/google', { credential: res.credential });
+    setUser(data.user); setToken(data.token);
+    localStorage.setItem('token', data.token); localStorage.setItem('user', JSON.stringify(data.user));
+  };
 
   const breadcrumbs = currentPath.split('/').filter(Boolean);
   const currentFilesList = sidebarTab === 'my' 
@@ -469,11 +482,11 @@ function App() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ height: `${fileManagerHeight}%`, background: '#252526', display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
             <div style={{ background: '#f8f9fa', color: '#333', padding: '4px 8px', display: 'flex', gap: '10px', borderBottom: '1px solid #ddd', alignItems: 'center', fontSize: '11px', flexShrink: 0 }}>
-              <button onClick={() => { createFile(true); setActiveDropdown(null); }} className="toolbar-btn"><FolderPlus size={14} color="#27ae60"/> New Folder</button>
-              <button onClick={() => { createFile(false); setActiveDropdown(null); }} className="toolbar-btn"><Plus size={14} color="#27ae60"/> New File</button>
+              <button onClick={() => { createFile(true); setActiveDropdown(null); }} className="toolbar-btn" disabled={sidebarTab === 'shared'}><FolderPlus size={14} color="#27ae60"/> New Folder</button>
+              <button onClick={() => { createFile(false); setActiveDropdown(null); }} className="toolbar-btn" disabled={sidebarTab === 'shared'}><Plus size={14} color="#27ae60"/> New File</button>
               
               <div style={{ position: 'relative' }}>
-                <button className="toolbar-btn" onClick={() => setActiveDropdown(activeDropdown === 'upload' ? null : 'upload')}><Upload size={14} color="#f39c12"/> Upload</button>
+                <button className="toolbar-btn" disabled={sidebarTab === 'shared'} onClick={() => setActiveDropdown(activeDropdown === 'upload' ? null : 'upload')}><Upload size={14} color="#f39c12"/> Upload</button>
                 {activeDropdown === 'upload' && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 20, minWidth: '120px', borderRadius: '4px' }}>
                     <div onClick={() => { handleUpload(false); setActiveDropdown(null); }} className="menu-item">Bestanden</div>
@@ -482,16 +495,16 @@ function App() {
                 )}
               </div>
 
-              <button onClick={() => { deleteSelected(); setActiveDropdown(null); }} disabled={selectedFileIds.size === 0} className="toolbar-btn"><Trash2 size={14} color="#e74c3c"/> Delete</button>
-              <button onClick={() => { renameSelected(); setActiveDropdown(null); }} disabled={selectedFileIds.size !== 1} className="toolbar-btn"><Edit3 size={14} color="#3498db"/> Rename</button>
+              <button onClick={() => { deleteSelected(); setActiveDropdown(null); }} disabled={selectedFileIds.size === 0 || sidebarTab === 'shared'} className="toolbar-btn"><Trash2 size={14} color="#e74c3c"/> Delete</button>
+              <button onClick={() => { renameSelected(); setActiveDropdown(null); }} disabled={selectedFileIds.size !== 1 || sidebarTab === 'shared'} className="toolbar-btn"><Edit3 size={14} color="#3498db"/> Rename</button>
               
               <div style={{ position: 'relative' }}>
                 <button onClick={() => setActiveDropdown(activeDropdown === 'more' ? null : 'more')} disabled={selectedFileIds.size === 0} className="toolbar-btn"><MoreHorizontal size={14}/> More</button>
                 {activeDropdown === 'more' && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 20, minWidth: '120px', borderRadius: '4px' }}>
-                    <div onClick={() => { setShowShareModal((sidebarTab === 'my' ? files : sharedFiles).find(f => f._id === Array.from(selectedFileIds)[0])); setActiveDropdown(null); }} className="menu-item"><Share2 size={12}/> Share</div>
-                    <div onClick={() => copySelected('copy')} className="menu-item"><Copy size={12}/> Copy</div>
-                    <div onClick={() => copySelected('cut')} className="menu-item"><Scissors size={12}/> Cut</div>
+                    <div onClick={() => { setShowShareModal((sidebarTab === 'my' ? files : sharedFiles).find(f => f._id === Array.from(selectedFileIds)[0])); setActiveDropdown(null); }} className="menu-item" hidden={sidebarTab === 'shared'}><Share2 size={12}/> Share</div>
+                    <div onClick={() => copySelected('copy')} className="menu-item" hidden={sidebarTab === 'shared'}><Copy size={12}/> Copy</div>
+                    <div onClick={() => copySelected('cut')} className="menu-item" hidden={sidebarTab === 'shared'}><Scissors size={12}/> Cut</div>
                     <div onClick={downloadSelected} className="menu-item"><Download size={12}/> Download</div>
                   </div>
                 )}
@@ -536,6 +549,7 @@ function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color={f.owner?._id === user.id ? "#3498db" : "#f1c40f"}/>}
                           <span>{f.name}</span>
+                          {f.sharedWith && f.sharedWith.length > 0 && <Users size={10} color="#888" />}
                         </div>
                       </td>
                       <td style={{ textAlign: 'right', padding: '5px', color: '#666' }}>{f.isFolder ? '' : (f.size > 1024 ? `${(f.size/1024).toFixed(1)} KB` : `${f.size} B`)}</td>
@@ -589,52 +603,75 @@ function App() {
 
       {(showShareModal || plotDialog) && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'white', padding: '25px', borderRadius: '8px', width: '400px', color: '#333' }}>
+          <div style={{ background: 'white', padding: '25px', borderRadius: '8px', width: '450px', color: '#333', boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
             {showShareModal && (
               <>
-                <h3 style={{ marginTop: 0 }}>Delen: {showShareModal.name}</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>E-mailadres:</label>
-                    <input id="share-email" type="email" placeholder="naam@voorbeeld.com" style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }} />
+                <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '10px' }}><Share2 size={20} color="#3498db"/> Delen: {showShareModal.name}</h3>
+                
+                <div style={{ marginTop: '20px' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase' }}>Nieuwe gebruiker toevoegen</label>
+                  <div style={{ display: 'flex', gap: '10px', marginTop: '8px' }}>
+                    <input id="share-email" type="email" placeholder="naam@voorbeeld.com" style={{ flex: 1, padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }} />
+                    <button onClick={() => {
+                      const email = (document.getElementById('share-email') as HTMLInputElement).value;
+                      if (email) handleShareChange(email, 'read');
+                    }} style={{ padding: '8px 15px', background: '#3498db', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Toevoegen</button>
                   </div>
                   {user.isAdmin && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px' }}>
-                      <input type="checkbox" id="share-everyone" onChange={(e) => { 
-                        const emailInput = document.getElementById('share-email') as HTMLInputElement;
-                        if (e.target.checked) emailInput.value = 'everyone'; else emailInput.value = '';
-                      }} />
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px', marginTop: '10px' }}>
+                      <input type="checkbox" onChange={(e) => { 
+                        if (e.target.checked) handleShareChange('everyone', 'read'); else handleShareChange('everyone', 'remove');
+                      }} checked={showShareModal.sharedWith?.some((s: any) => s.email === 'everyone')} />
                       Delen met iedereen
                     </label>
                   )}
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Permissie:</label>
-                    <div style={{ display: 'flex', gap: '10px' }}>
-                      <button onClick={() => handleShareSubmit((document.getElementById('share-email') as HTMLInputElement).value, 'read')} style={{ flex: 1, padding: '8px', background: '#f8f9fa', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer' }}>Alleen lezen (Nee)</button>
-                      <button onClick={() => handleShareSubmit((document.getElementById('share-email') as HTMLInputElement).value, 'write')} style={{ flex: 1, padding: '8px', background: '#3498db', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Bewerken (Ja)</button>
-                    </div>
+                </div>
+
+                <div style={{ marginTop: '25px', maxHeight: '200px', overflowY: 'auto' }}>
+                  <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#666', textTransform: 'uppercase' }}>Huidige toegang</label>
+                  <div style={{ marginTop: '10px' }}>
+                    {showShareModal.sharedWith?.length === 0 && <div style={{ fontSize: '12px', color: '#999', fontStyle: 'italic' }}>Nog met niemand gedeeld.</div>}
+                    {showShareModal.sharedWith?.map((s: any) => (
+                      <div key={s.email} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #eee' }}>
+                        <div style={{ fontSize: '13px' }}>{s.email === 'everyone' ? 'Iedereen' : s.email}</div>
+                        <div style={{ display: 'flex', gap: '5px' }}>
+                          <select 
+                            value={s.permission} 
+                            onChange={(e) => handleShareChange(s.email, e.target.value as any)}
+                            style={{ fontSize: '11px', padding: '2px', borderRadius: '3px' }}
+                          >
+                            <option value="read">Alleen lezen</option>
+                            <option value="write">Bewerken</option>
+                          </select>
+                          <button onClick={() => handleShareChange(s.email, 'remove')} style={{ background: 'none', border: 'none', color: '#e74c3c', cursor: 'pointer' }}><Trash size={14}/></button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <button onClick={() => setShowShareModal(null)} style={{ padding: '8px', background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}>Annuleren</button>
+                </div>
+
+                <div style={{ marginTop: '30px', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button onClick={() => setShowShareModal(null)} style={{ padding: '8px 20px', background: '#f0f2f5', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Sluiten</button>
                 </div>
               </>
             )}
             {plotDialog && (
               <>
-                <h3>{plotDialog === 'delete' ? 'Verwijder plots' : 'Download plots'}</h3>
-                <p style={{ fontSize: '13px' }}>Wil je alleen de huidige plot {plotDialog === 'delete' ? 'verwijderen' : 'downloaden'}, of alle plots?</p>
-                <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <h3 style={{ marginTop: 0 }}>{plotDialog === 'delete' ? 'Verwijder plots' : 'Download plots'}</h3>
+                <p style={{ fontSize: '13px', color: '#666' }}>Wil je alleen de huidige plot {plotDialog === 'delete' ? 'verwijderen' : 'downloaden'}, of alle plots?</p>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '25px' }}>
                   <button onClick={() => {
                     if (plotDialog === 'delete') { setPlots([]); setPlotIndex(-1); }
                     else { plots.forEach((p, i) => { const a = document.createElement('a'); a.href = p; a.download = `plot_${i + 1}.png`; a.click(); }); }
                     setPlotDialog(null);
-                  }} style={{ flex: 1, padding: '10px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Alle</button>
+                  }} style={{ flex: 1, padding: '12px', background: '#e74c3c', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Alle</button>
                   <button onClick={() => {
                     if (plotDialog === 'delete') { const next = [...plots]; next.splice(plotIndex, 1); setPlots(next); setPlotIndex(Math.max(0, plotIndex - 1)); }
                     else { const a = document.createElement('a'); a.href = plots[plotIndex]; a.download = `plot_${plotIndex + 1}.png`; a.click(); }
                     setPlotDialog(null);
-                  }} style={{ flex: 1, padding: '10px', background: '#3498db', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Enkel huidige</button>
+                  }} style={{ flex: 1, padding: '12px', background: '#3498db', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}>Enkel huidige</button>
                 </div>
-                <button onClick={() => setPlotDialog(null)} style={{ width: '100%', padding: '10px', background: 'none', border: 'none', color: '#888', cursor: 'pointer', marginTop: '10px' }}>Annuleren</button>
+                <button onClick={() => setPlotDialog(null)} style={{ width: '100%', padding: '10px', background: 'none', border: 'none', color: '#888', cursor: 'pointer', marginTop: '10px', fontSize: '12px' }}>Annuleren</button>
               </>
             )}
           </div>

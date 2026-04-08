@@ -141,7 +141,6 @@ app.get('/api/files', authenticate, async (req: any, res) => {
 });
 
 app.get('/api/shared-files', authenticate, async (req: any, res) => {
-  // Find all folders shared with this user
   const sharedFolders = await File.find({
     isFolder: true,
     $or: [
@@ -335,30 +334,22 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
       
       let finalOutput = session.output.split(sentinel)[0];
       
-      // Cleanup all wrapper code echoes
-      finalOutput = finalOutput.replace(new RegExp(`source\\("${scriptPath}".*\\)`, 'g'), '');
-      finalOutput = finalOutput.replace(/options\(device = function\(\.\.\.\) \{[\s\S]*?\}\)/g, '');
-      finalOutput = finalOutput.replace(/setwd\(".*"\)/g, '');
-      finalOutput = finalOutput.replace(/options\(warn=-1\)/g, '');
-      finalOutput = finalOutput.replace(/suppressMessages\(library\(jsonlite, quietly=TRUE\)\)/g, '');
-      finalOutput = finalOutput.replace(/tryCatch\(\{/g, '');
-      finalOutput = finalOutput.replace(/while\(dev\.cur\(\) > 1\) dev\.off\(\)/g, '');
-      finalOutput = finalOutput.replace(/cat\("SENTINEL_DONE_.*\n/g, '');
-      
-      // Intensive filtering of multi-line blocks
+      // Cleanup all wrapper code echoes - very aggressive
+      const scriptFileName = path.basename(scriptPath);
       const lines = finalOutput.split('\n').filter(l => {
         const trimmed = l.trim();
+        if (trimmed.includes(scriptFileName)) return false;
         if (trimmed.startsWith('> source("')) return false;
         if (trimmed.startsWith('> setwd("')) return false;
         if (trimmed.startsWith('> options(')) return false;
         if (trimmed.startsWith('> tryCatch({')) return false;
         if (trimmed.startsWith('> while(dev.cur()')) return false;
         if (trimmed.startsWith('+')) {
-           // Check if it's part of the wrapper code we want to hide
            if (trimmed.includes('}, error = function(e)')) return false;
            if (trimmed.includes('if (dev.cur()')) return false;
            if (trimmed.includes('cat("SENTINEL_DONE')) return false;
            if (trimmed.includes('png(file = "/tmp/plot')) return false;
+           if (trimmed === '+') return false; // empty continuations
         }
         return true;
       });
@@ -380,17 +371,19 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
         const cleanStdout = finalOutput.replace(/null device\s*\n\s*1\s*/g, '').trim();
         res.json({ stdout: cleanStdout, plots, variables });
         if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-      }, 250);
+      }, 300); // More time for R to flush plots
     }
   }, 100);
 });
 
 io.on('connection', (socket) => {
-  socket.on('join-file', (fileId) => socket.join(fileId));
+  socket.on('join-file', (fileId) => socket.join(fileRoom(fileId)));
   socket.on('edit-file', (data) => {
-    socket.to(data.fileId).emit('file-updated', data);
+    socket.to(fileRoom(data.fileId)).emit('file-updated', data);
   });
 });
+
+function fileRoom(id: string) { return `file_${id}`; }
 
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));

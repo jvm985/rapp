@@ -63,21 +63,22 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 - als ik een nieuw bestand of map maak, moet die onmiddellijk in de filemanager verschijnen
 - een gedeeld bestand dat ik open, verschijnt in filemanager bij mijn eigen bestanden
 - het samen werken aan 1 bestand lukt niet: het zijn blijkbaar afzonderlijke bestanden geworden
+- wanneer ik een bestand deel als alleen lezen, kunnen de anderen er toch in werken. je moet het bewerken uitschakelen in de editor.
+- verwijderknop plots: laat user kiezen enkel huidige plot verwijderen, of allemaal. zelfde voor download knop. het dialoogvenster moet drie knoppen bevatten alle, enkel huidige en annuleren. 
 
 
 verbeterpunten
 --------------
-in console verschijnt dit nog: 
-options(device = function(...) { 
 
-<07ad4e66884be_%03d.png", width = 800, height = 600)
-  })
 
-in console verschijnt dit nog: <4be.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
-
+- maak verwijder en download schermen voor plots professioneler
+- geddelde bestanden of mappen mag je nooit kunnen verwijderen, tenzij ze van jezelf zijn. schakel daarom alle knoppen uit in filemanager, wanneer je bij gedeelde bestanden zit
+- filemanager: geef aan dat ik een bestand heb gedeeld. wanneer ik bij een gedeeld bestand op delen klik, moet ik de huidige "deel status" zien, en die dan kunnen aanpassen. wanneer ik iets verander (bv van lezen naar schrijven) moet dat onmiddellijk bij alle gebruikers ziichtbaar worden
+- maak het dialoogscherm voor delen beter en mooier en professioneler. zorg ook dat ik met verschillende emailadressen kan delen
 - plots verschijnen niet allemaal wanneer ik een reeks R commando's uitvoer: enkel de laatste
-- geddelde bestanden of mappen mag je nooit kunnen verwijderen, tenzij ze van jezelf zijn
-- verwijderknop plots: laat user kiezen enkel huidige plot verwijderen, of allemaal. zelfde voor download knop. het dialoogvenster moet drie knoppen bevatten alle, enkel huidige en annuleren
-- wanneer ik een bestand deel als alleen lezen, kunnen de anderen er toch in werken. je moet het bewerken uitschakelen in de editor.
+- in console verschijnt dit nog: <d16.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
+- in console verschijnt dit nog: <4be.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
+
+- ik moet bestanden kunnen verplaatsen en kopieren naar andere mappen (met cut, copy, paste)
 - test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.
  
