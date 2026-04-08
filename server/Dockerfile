@@ -14,10 +14,11 @@ RUN apt-get update && apt-get install -y \
     libpng-dev \
     libtiff5-dev \
     libjpeg-dev \
+    libnlopt-dev \
+    cmake \
     && rm -rf /var/lib/apt/lists/*
 
 # Install a wide range of useful R packages
-# Grouped by category: Data, Manipulation, Visualization, Reporting, Interactive, etc.
 RUN R -e "install.packages(c(\
     'jsonlite', 'tidyverse', 'tidymodels', 'shiny', \
     'rmarkdown', 'knitr', 'ggplot2', 'dplyr', 'readr', \

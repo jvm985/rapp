@@ -26,10 +26,15 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 - de output van R niet centreren
 - de filemanager moet ook met mappen om kunnen: dus als ik er op klik, moet je de inhoud van die map tonen. voorzie bovenaan een navigatie
 - dit werkt niet goed: welke r code uitvoeren: als code is geselecteerd, enkel de selectie. als niets is geselecteerd, enkel de lijn waar de cursor staat.
-
-
-verbeterpunten
---------------
 - installeer alle packages (toegankelijk voor iedereen) die je ziet op https://support.posit.co/hc/en-us/articles/201057987-Quick-list-of-useful-R-packages
 - voorzie een knop om output te wissen
 - de output van r is niet mooi: er komt altijd iets bij als null device en een 1: fix dat
+
+verbeterpunten
+--------------
+- waarom gebruik je nog scp om te deployen? maak het proper: deploy alles naar github, dan naar productie en build daar
+- filemanager: voorzie knippen, plakken, kopieren, delen, naam wijzigen, downloaden
+- plots: voorzie download
+- plots: voorzie navigatie naar vorige-volgende plot, en ook een wis alles knop
+- test front en backend grondig voor je zegt dat je klaar bent
+- schrijf een volledige technische documentatie van de R app, zodat je volgende sessie dat kan lezen en direct mee bent met alles. bewaar dat in technisch.txt
