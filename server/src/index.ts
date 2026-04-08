@@ -186,29 +186,29 @@ app.post('/api/files', authenticate, async (req: any, res) => {
     let currentCheckPath = '/';
     for (const part of parts) {
       const folderName = part;
-      // Check for existing folder to avoid duplicates
-      let folder = await File.findOne({ owner: req.user.id, name: folderName, path: currentCheckPath, isFolder: true });
-      if (!folder) {
-        folder = await File.create({ name: folderName, isFolder: true, path: currentCheckPath, owner: req.user.id });
-      }
+      // Use atomic findOneAndUpdate with upsert to prevent duplicates
+      await File.findOneAndUpdate(
+        { owner: req.user.id, name: folderName, path: currentCheckPath, isFolder: true },
+        { $setOnInsert: { owner: req.user.id, name: folderName, path: currentCheckPath, isFolder: true, content: '', draftContent: '', size: 0, sharedWith: [], lastModified: new Date() } },
+        { upsert: true, new: true }
+      );
       currentCheckPath += folderName + '/';
     }
   }
   
-  // Avoid duplicates for files
-  const existing = await File.findOne({ owner: req.user.id, name: req.body.name, path: req.body.path, isFolder: req.body.isFolder });
-  if (existing) {
-    if (!req.body.isFolder) {
-      existing.content = req.body.content || existing.content;
-      existing.draftContent = req.body.draftContent || existing.draftContent;
-      existing.size = req.body.size || existing.size;
-      await existing.save();
+  // Use atomic findOneAndUpdate for the file itself to prevent duplicates
+  const filter = { owner: req.user.id, name: req.body.name, path: req.body.path, isFolder: req.body.isFolder };
+  const update = { 
+    $set: { 
+      content: req.body.content || '', 
+      draftContent: req.body.draftContent || req.body.content || '', 
+      size: req.body.size || (req.body.content ? Buffer.byteLength(req.body.content, 'utf8') : 0),
+      lastModified: new Date()
     }
-    io.emit('files-changed', { ownerId: req.user.id });
-    return res.json(existing);
-  }
-
-  const file = await File.create({ ...req.body, owner: req.user.id });
+  };
+  
+  const file = await File.findOneAndUpdate(filter, update, { upsert: true, new: true });
+  
   io.emit('files-changed', { ownerId: req.user.id });
   res.json(file);
 });

@@ -340,21 +340,18 @@ function App() {
       for (const file of filesToUpload) {
         const reader = new FileReader();
         reader.onload = async (res: any) => {
-          const content = res.target.result;
-          let uploadPath = currentPath;
-          if (isFolder && file.webkitRelativePath) {
-            const parts = file.webkitRelativePath.split('/');
-            parts.pop(); 
-            if (parts.length > 0) {
-              uploadPath = currentPath + parts.join('/') + '/';
-            }
+        const content = res.target.result;
+        let uploadPath = currentPath;
+        if (isFolder && file.webkitRelativePath) {
+          const parts = file.webkitRelativePath.split('/');
+          parts.pop(); 
+          if (parts.length > 0) {
+            uploadPath = currentPath + parts.join('/') + '/';
           }
-          const apiRes = await axios.post('/api/files', { name: file.name, path: uploadPath }, { headers: { Authorization: `Bearer ${token}` } });
-          await axios.put(`/api/files/${apiRes.data._id}`, { content }, { headers: { Authorization: `Bearer ${token}` } });
-          fetchFiles();
+        }
+        await axios.post('/api/files', { name: file.name, path: uploadPath, content, isFolder: false }, { headers: { Authorization: `Bearer ${token}` } });
         };
-        reader.readAsText(file);
-      }
+        reader.readAsText(file);      }
     };
     input.click();
   };
