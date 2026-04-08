@@ -71,20 +71,34 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 - filemanager: geef aan dat ik een bestand heb gedeeld. wanneer ik bij een gedeeld bestand op delen klik, moet ik de huidige "deel status" zien, en die dan kunnen aanpassen. wanneer ik iets verander (bv van lezen naar schrijven) moet dat onmiddellijk bij alle gebruikers ziichtbaar worden
 - maak het dialoogscherm voor delen beter en mooier en professioneler. zorg ook dat ik met verschillende emailadressen kan delen
 
+- variabelen: toon de waarden links uitgelijnd. zorg voor in- en uitklappijltjes. beperk het aantal lijnen data tot 5.
+- filemanager: bij gedeelde bestanden, toon wie de eigenaar is, maar beperk de lengte van het emailadres, zodat de tabel ordelijk blijft, en toon niet vanaf @
+
 verbeterpunten
 --------------
 
-- filemanager: bij gedeelde bestanden, toon wie de eigenaar is, maar beperk de lengte van het emailadres, zodat de tabel ordelijk blijft, en toon niet vanaf @
+
 - plots verschijnen niet allemaal wanneer ik een reeks R commando's uitvoer: enkel de laatste
-- ruim console op: <d16.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
 
-- ruim console op: + 
-<5021a159f62dd_%03d.png", width = 800, height = 600)
-+   })
+- ruim console op: <4be.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
+- ik moet bestanden kunnen verplaatsen en kopieren naar andere mappen (met cut, copy, paste). dat werkt nog niet want als ik een bestand cut, kan ik het niet pasten in een map want knoppen daar niet actief
+- bij uploaden map die ik ervoor al eens had upgeload en verwijderd, verschijnen nu de bestanden dubbel, en de map zelf ook
+- bij variabelen: als ik klik op uitklappen, is er een error: 
+Uncaught TypeError: t.summary.split is not a function
+    children https://r.irishof.cloud/assets/index-0XCb4LNP.js:27
+    Vo https://r.irishof.cloud/assets/index-0XCb4LNP.js:27
+    Eo https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
+    hc https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
+    Mc https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
+    Mu https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
+    ku https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
+    Ou https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
+    gu https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
+    ld https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
+    id https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
+    od https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
+    ud https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
+index-0XCb4LNP.js:27:16340
 
-<2dd.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
-
-- ik moet bestanden kunnen verplaatsen en kopieren naar andere mappen (met cut, copy, paste)
-- variabelen: toon de waarden links uitgelijnd. zorg voor in- en uitklappijltjes. beperk het aantal lijnen data tot 5.
 - test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.
  

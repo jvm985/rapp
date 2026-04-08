@@ -39,9 +39,9 @@ function App() {
   const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
 
   // Custom Resize State
-  const [leftWidth, setLeftWidth] = useState(65); 
-  const [editorHeight, setEditorHeight] = useState(70);
-  const [fileManagerHeight, setFileManagerHeight] = useState(40);
+  const [leftWidth, _setLeftWidth] = useState(65); 
+  const [editorHeight, _setEditorHeight] = useState(70);
+  const [fileManagerHeight, _setFileManagerHeight] = useState(40);
 
   const editorRef = useRef<any>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
@@ -372,24 +372,6 @@ function App() {
     localStorage.setItem('token', data.token); localStorage.setItem('user', JSON.stringify(data.user));
   };
 
-  // Resize Handlers
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isResizingV.current) setLeftWidth((e.clientX / window.innerWidth) * 100);
-      else if (isResizingH.current) {
-        const newH = (e.clientY / window.innerHeight) * 100;
-        if (newH > 10 && newH < 90) setEditorHeight(newH);
-      }
-      else if (isResizingR.current) {
-        const newH = (e.clientY / window.innerHeight) * 100;
-        if (newH > 10 && newH < 90) setFileManagerHeight(newH);
-      }
-    };
-    const handleMouseUp = () => { isResizingV.current = false; isResizingH.current = false; isResizingR.current = false; };
-    window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
-    return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
-  }, []);
-
   const breadcrumbs = currentPath.split('/').filter(Boolean);
   const currentFilesList = sidebarTab === 'my' 
     ? files.filter(f => f.path === currentPath) 
@@ -428,6 +410,18 @@ function App() {
     );
   }
 
+  const hasWriteAccessToCurrentFolder = () => {
+    if (sidebarTab === 'my') return true;
+    if (currentPath === '/') return false;
+    const parts = currentPath.split('/').filter(Boolean);
+    const folderName = parts[parts.length - 1];
+    const parentPath = '/' + parts.slice(0, -1).join('/') + (parts.length > 1 ? '/' : '');
+    const folder = sharedFiles.find(f => f.isFolder && f.name === folderName && f.path === parentPath);
+    return folder?.sharedWith?.some((s: any) => (s.email === user.email || s.email === 'everyone') && s.permission === 'write') || user.isAdmin;
+  };
+
+  const canPaste = clipboard && (sidebarTab === 'my' || hasWriteAccessToCurrentFolder());
+
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#1e1e1e', color: 'white' }}>
       <header style={{ height: '45px', background: '#2d2d2d', display: 'flex', alignItems: 'center', padding: '0 15px', borderBottom: '1px solid #333' }}>
@@ -444,7 +438,6 @@ function App() {
       </header>
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Left Column */}
         <div style={{ width: `${leftWidth}%`, display: 'flex', flexDirection: 'column', borderRight: '4px solid #111' }}>
           <div style={{ height: `${editorHeight}%`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ height: '35px', background: '#252526', display: 'flex', overflowX: 'auto', borderBottom: '1px solid #111', flexShrink: 0 }}>
@@ -494,15 +487,14 @@ function App() {
 
         <div onMouseDown={() => isResizingV.current = true} style={{ width: '4px', background: '#111', cursor: 'col-resize', zIndex: 10, flexShrink: 0 }} />
 
-        {/* Right Column */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ height: `${fileManagerHeight}%`, background: '#252526', display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
             <div style={{ background: '#f8f9fa', color: '#333', padding: '4px 8px', display: 'flex', gap: '10px', borderBottom: '1px solid #ddd', alignItems: 'center', fontSize: '11px', flexShrink: 0 }}>
-              <button onClick={() => { createFile(true); setActiveDropdown(null); }} className="toolbar-btn" disabled={sidebarTab === 'shared'}><FolderPlus size={14} color="#27ae60"/> New Folder</button>
-              <button onClick={() => { createFile(false); setActiveDropdown(null); }} className="toolbar-btn" disabled={sidebarTab === 'shared'}><Plus size={14} color="#27ae60"/> New File</button>
+              <button onClick={() => { createFile(true); setActiveDropdown(null); }} className="toolbar-btn" disabled={sidebarTab === 'shared' && !hasWriteAccessToCurrentFolder()}><FolderPlus size={14} color="#27ae60"/> New Folder</button>
+              <button onClick={() => { createFile(false); setActiveDropdown(null); }} className="toolbar-btn" disabled={sidebarTab === 'shared' && !hasWriteAccessToCurrentFolder()}><Plus size={14} color="#27ae60"/> New File</button>
               
               <div style={{ position: 'relative' }}>
-                <button className="toolbar-btn" disabled={sidebarTab === 'shared'} onClick={() => setActiveDropdown(activeDropdown === 'upload' ? null : 'upload')}><Upload size={14} color="#f39c12"/> Upload</button>
+                <button className="toolbar-btn" disabled={sidebarTab === 'shared' && !hasWriteAccessToCurrentFolder()} onClick={() => setActiveDropdown(activeDropdown === 'upload' ? null : 'upload')}><Upload size={14} color="#f39c12"/> Upload</button>
                 {activeDropdown === 'upload' && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 20, minWidth: '120px', borderRadius: '4px' }}>
                     <div onClick={() => { handleUpload(false); setActiveDropdown(null); }} className="menu-item">Bestanden</div>
@@ -518,9 +510,9 @@ function App() {
                 <button onClick={() => setActiveDropdown(activeDropdown === 'more' ? null : 'more')} disabled={selectedFileIds.size === 0} className="toolbar-btn"><MoreHorizontal size={14}/> More</button>
                 {activeDropdown === 'more' && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 20, minWidth: '120px', borderRadius: '4px' }}>
-                    <div onClick={() => { setShowShareModal((sidebarTab === 'my' ? files : sharedFiles).find(f => f._id === Array.from(selectedFileIds)[0])); setActiveDropdown(null); }} className="menu-item" hidden={sidebarTab === 'shared'}><Share2 size={12}/> Share</div>
-                    <div onClick={() => copySelected('copy')} className="menu-item" hidden={sidebarTab === 'shared'}><Copy size={12}/> Copy</div>
-                    <div onClick={() => copySelected('cut')} className="menu-item" hidden={sidebarTab === 'shared'}><Scissors size={12}/> Cut</div>
+                    {sidebarTab === 'my' && <div onClick={() => { setShowShareModal((sidebarTab === 'my' ? files : sharedFiles).find(f => f._id === Array.from(selectedFileIds)[0])); setActiveDropdown(null); }} className="menu-item"><Share2 size={12}/> Share</div>}
+                    {sidebarTab === 'my' && <div onClick={() => copySelected('copy')} className="menu-item"><Copy size={12}/> Copy</div>}
+                    {sidebarTab === 'my' && <div onClick={() => copySelected('cut')} className="menu-item"><Scissors size={12}/> Cut</div>}
                     <div onClick={downloadSelected} className="menu-item"><Download size={12}/> Download</div>
                   </div>
                 )}
@@ -541,8 +533,8 @@ function App() {
                     <ChevronRight size={10} color="#444" /><span onClick={() => setCurrentPath('/' + breadcrumbs.slice(0, i + 1).join('/') + '/')} style={{ cursor: 'pointer' }}>{b}</span>
                   </div>
                 ))}
-                {clipboard && sidebarTab === 'my' && (
-                  <div style={{ marginLeft: 'auto', cursor: 'pointer', color: '#2ecc71' }} onClick={pasteClipboard}><Clipboard size={14} /></div>
+                {canPaste && (
+                  <div style={{ marginLeft: 'auto', cursor: 'pointer', color: '#2ecc71' }} onClick={pasteClipboard} title="Plakken"><Clipboard size={14} /></div>
                 )}
               </div>
             </div>
@@ -612,10 +604,14 @@ function App() {
                         {expandedVars.has(name) ? <ChevronDown size={12}/> : <ChevronRight size={12}/>}
                         <Database size={12}/>{name} <span style={{ fontWeight: 'normal', color: '#999', fontSize: '10px' }}>({info.type})</span>
                       </div>
-                      {expandedVars.has(name) && (
+                      {expandedVars.has(name) && info.summary && (
                         <pre style={{ margin: '4px 0 0 0', fontSize: '11px', background: '#f8f9fa', padding: '4px', whiteSpace: 'pre-wrap', borderLeft: '3px solid #3498db' }}>
-                          {info.summary.split('\n').slice(0, 5).join('\n')}
-                          {info.summary.split('\n').length > 5 ? '\n...' : ''}
+                          {typeof info.summary === 'string' ? (
+                            <>
+                              {info.summary.split('\n').slice(0, 5).join('\n')}
+                              {info.summary.split('\n').length > 5 ? '\n...' : ''}
+                            </>
+                          ) : JSON.stringify(info.summary)}
                         </pre>
                       )}
                     </div>

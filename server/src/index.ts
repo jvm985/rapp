@@ -76,7 +76,7 @@ const getRSession = (userId: string) => {
     session.output += data.toString(); 
   });
   
-  // Use a unique pattern for each session to avoid collision
+  // Multiple plot support with %03d
   rProcess.stdin.write(`options(device = function(...) { 
     png(file = "/tmp/plot_${userId}_%03d.png", width = 800, height = 600)
   })\n`);
@@ -142,7 +142,6 @@ app.get('/api/files', authenticate, async (req: any, res) => {
 });
 
 app.get('/api/shared-files', authenticate, async (req: any, res) => {
-  // Find all folders shared with this user
   const sharedFolders = await File.find({
     isFolder: true,
     $or: [
@@ -193,6 +192,18 @@ app.post('/api/files', authenticate, async (req: any, res) => {
       currentCheckPath += folderName + '/';
     }
   }
+  
+  // Avoid duplicates for files
+  if (!req.body.isFolder) {
+    const existing = await File.findOne({ owner: req.user.id, name: req.body.name, path: req.body.path, isFolder: false });
+    if (existing) {
+      Object.assign(existing, req.body);
+      await existing.save();
+      io.emit('files-changed', { ownerId: req.user.id });
+      return res.json(existing);
+    }
+  }
+
   const file = await File.create({ ...req.body, owner: req.user.id });
   io.emit('files-changed', { ownerId: req.user.id });
   res.json(file);
@@ -292,7 +303,9 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
   }
 
   // Clear previous plots for this user
-  fs.readdirSync('/tmp').filter(f => f.startsWith(`plot_${userId}_`)).forEach(f => fs.unlinkSync(path.join('/tmp', f)));
+  fs.readdirSync('/tmp').filter(f => f.startsWith(`plot_${userId}_`)).forEach(f => {
+    try { fs.unlinkSync(path.join('/tmp', f)); } catch(e) {}
+  });
 
   session.output = ''; 
   const sentinel = `SENTINEL_DONE_${Date.now()}`;
@@ -312,7 +325,7 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
     while(dev.cur() > 1) dev.off()
     cat("${sentinel}\\n")
     
-    # Silently capture variables - filter system ones
+    # Silently capture variables
     var_list <- list()
     all_objs <- ls(all.names=FALSE)
     for (v in all_objs) {
@@ -336,25 +349,28 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
       
       let finalOutput = session.output.split(sentinel)[0];
       
-      // Cleanup all wrapper code echoes
+      // Intensive filtering of wrapper code echoes
       const lines = finalOutput.split('\n').filter(l => {
         const trimmed = l.trim();
-        // Hide source lines
-        if (trimmed.includes(`source("${scriptPath}"`)) return false;
-        // Hide wrapper code lines based on known patterns
-        if (trimmed.includes('ryCatch({')) return false;
-        if (trimmed.includes('setwd(')) return false;
-        if (trimmed.includes('options(')) return false;
-        if (trimmed.includes('suppressMessages(library(')) return false;
-        if (trimmed.includes('while(dev.cur()')) return false;
-        if (trimmed.includes('cat("SENTINEL_DONE')) return false;
-        if (trimmed.includes('png(file = "/tmp/plot')) return false;
-        if (trimmed.includes('}, error = function(e)')) return false;
+        if (trimmed.includes(path.basename(scriptPath))) return false;
+        if (trimmed.startsWith('> source(')) return false;
+        if (trimmed.startsWith('> setwd(')) return false;
+        if (trimmed.startsWith('> options(')) return false;
+        if (trimmed.startsWith('> suppressMessages(')) return false;
+        if (trimmed.startsWith('> tryCatch({')) return false;
+        if (trimmed.startsWith('> while(dev.cur()')) return false;
         if (trimmed === '+') return false;
         if (trimmed.startsWith('+')) {
            // Heuristic for wrapper continuation lines
+           if (trimmed.includes('png(file = "/tmp/plot')) return false;
            if (trimmed.includes('_%03d.png"')) return false;
            if (trimmed.includes('dev.off()')) return false;
+           if (trimmed.includes('cat("SENTINEL_DONE')) return false;
+           if (trimmed.includes('}, error = function(e)')) return false;
+           if (trimmed.includes('})')) {
+              // Only hide if it follows a wrapper line
+              return false;
+           }
         }
         return true;
       });
@@ -376,7 +392,7 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
         const cleanStdout = finalOutput.replace(/null device\s*\n\s*1\s*/g, '').trim();
         res.json({ stdout: cleanStdout, plots, variables });
         if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-      }, 350); // Increased wait for plot flush
+      }, 400); // Wait longer for plots
     }
   }, 100);
 });
