@@ -167,7 +167,7 @@ function App() {
   };
 
   const activeFile = openFiles.find(f => f._id === activeFileId);
-  const canEditActive = activeFile && (activeFile.owner?._id === user.id || activeFile.sharedWith?.some((s: any) => (s.email === user.email || s.email === 'everyone') && s.permission === 'write') || user.isAdmin);
+  const canEditActive = activeFile && (activeFile.owner?._id === user._id || activeFile.sharedWith?.some((s: any) => (s.email === user.email || s.email === 'everyone') && s.permission === 'write') || user.isAdmin);
 
   const saveFile = async () => {
     if (!activeFileId || !activeFile || !canEditActive) return;
@@ -261,7 +261,7 @@ function App() {
     if (!confirm(`Zeker weten dat je ${selectedFileIds.size} item(s) wilt verwijderen?`)) return;
     for (const id of Array.from(selectedFileIds)) {
       const file = (sidebarTab === 'my' ? files : sharedFiles).find(f => f._id === id);
-      if (file.owner?._id !== user.id && !user.isAdmin) {
+      if (file.owner?._id !== user._id && !user.isAdmin) {
         alert(`Je kunt ${file.name} niet verwijderen omdat je niet de eigenaar bent.`);
         continue;
       }
@@ -460,7 +460,7 @@ function App() {
             <div style={{ height: '35px', background: '#252526', display: 'flex', overflowX: 'auto', borderBottom: '1px solid #111', flexShrink: 0 }}>
               {openFiles.map(f => (
                 <div key={f._id} onClick={() => setActiveFileId(f._id)} style={{ padding: '0 15px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer', background: activeFileId === f._id ? '#1e1e1e' : '#2d2d2d', borderRight: '1px solid #111', minWidth: '120px' }}>
-                  <FileText size={12} color={f.owner?._id === user.id ? (f.draftContent !== f.content ? "#e74c3c" : "#3498db") : "#f1c40f"}/>
+                  <FileText size={12} color={f.owner?._id === user._id ? (f.draftContent !== f.content ? "#e74c3c" : "#3498db") : "#f1c40f"}/>
                   <span style={{ flex: 1, whiteSpace: 'nowrap', color: f.draftContent !== f.content ? "#e74c3c" : "inherit" }}>{f.name}</span>
                   <X size={12} onClick={(e) => closeFile(e, f._id)} className="close-icon"/>
                 </div>
@@ -573,7 +573,7 @@ function App() {
                       <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedFileIds.has(f._id)} onChange={() => toggleSelect(f._id)}/></td>
                       <td style={{ padding: '5px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color={f.owner?._id === user.id ? "#3498db" : "#f1c40f"}/>}
+                          {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color={f.owner?._id === user._id ? "#3498db" : "#f1c40f"}/>}
                           <span>{f.name}</span>
                           {f.sharedWith && f.sharedWith.length > 0 && <UsersIcon size={10} color="#888" />}
                         </div>
