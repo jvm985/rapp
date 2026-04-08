@@ -43,12 +43,19 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 - plots: als R een nieuwe plot genereert, spring in het venster dan naar die nieuwe plot
 - filemanager: uploaden knop voor bestanden van lokale schijf up te loaden; meerdere bestanden en mappen uploaden mogelijk maken
 - filemanager: ipv voor elk bestanden iconen, doe het zoals in het screenshot bestand dat ik hier plaatste
+- filemanager: daar moet je de bestanden niet in het rood tonen wanneer ze zijn gewijzigd
+- wanneer ik library() gebruik in R, moet die in de sessie environment blijven
+- in code editor: als ik op ctrl-enter druk, moet je de uidige lijn naar R sturen. 
 
 verbeterpunten
 --------------
-- filemanager: daar moet je de bestanden niet in het rood tonen wanneer ze zijn gewijzigd
-- filemanager: ik kan geen map uploaden
-- wanneer ik library() gebruik in R, moet ik dat bij de volgende functieaanroep weer doen. De library blijft niet in de environment. Fix dat.
-- wanneer ik panel console naar boven uitrek, verdwijnt dat onder het R code panel. fix.
-- in code editor: als ik op ctrl-enter druk, moet je de uidige lijn naar R sturen. 
+- bij inloggen, open de bestanden die tijdens laatste sessie open waren
+- filemanager: ik kan geen map uploaden: ze verschijnt niet bij mijn bestanden na de upload
 - test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.
+- wanneer ik nu een R commando geef, krijg ik in de console altijd iets als dit:
+ryCatch({
++ 
+< + geom_point() + labs(x="Distance", y="Frequency")
++     }, error = function(e) { cat("ERROR:", e$message, "\n") })
+    if (dev.cur() > 1) dev.off()
+cat("

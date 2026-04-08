@@ -32,7 +32,8 @@ const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   name: String,
   picture: String,
-  isAdmin: { type: Boolean, default: false }
+  isAdmin: { type: Boolean, default: false },
+  openFileIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'File' }] // Persistent open files
 });
 const User = mongoose.model('User', UserSchema);
 
@@ -53,18 +54,23 @@ const FileSchema = new mongoose.Schema({
 const File = mongoose.model('File', FileSchema);
 
 // R Session Management
-const userSessions = new Map<string, { process: ChildProcessWithoutNullStreams, output: string, lastPlot?: string }>();
+const userSessions = new Map<string, { process: ChildProcessWithoutNullStreams, output: string }>();
 
 const getRSession = (userId: string) => {
   if (userSessions.has(userId)) return userSessions.get(userId)!;
 
+  // Start R with --no-save to avoid clutter, but keeping it interactive for persistence
   const rProcess = spawn('R', ['--vanilla', '--quiet', '--interactive']);
   const session = { process: rProcess, output: '' };
   
-  rProcess.stdout.on('data', (data) => { session.output += data.toString(); });
-  rProcess.stderr.on('data', (data) => { session.output += data.toString(); });
+  rProcess.stdout.on('data', (data) => { 
+    session.output += data.toString(); 
+  });
+  rProcess.stderr.on('data', (data) => { 
+    session.output += data.toString(); 
+  });
   
-  // Setup plot handling
+  // Setup plot handling - override default plot device to png
   rProcess.stdin.write(`options(device = function(...) { 
     png(file = "/tmp/plot_${userId}.png", width = 800, height = 600)
   })\n`);
@@ -117,6 +123,12 @@ app.post('/api/auth/google', async (req, res) => {
   } catch (err) { res.status(400).send('Auth failed'); }
 });
 
+// User preferences
+app.put('/api/user/open-files', authenticate, async (req: any, res) => {
+  await User.findByIdAndUpdate(req.user.id, { openFileIds: req.body.fileIds });
+  res.send('Updated');
+});
+
 // Files
 app.get('/api/files', authenticate, async (req: any, res) => {
   let query: any = req.user.isAdmin ? {} : { owner: req.user.id };
@@ -133,6 +145,19 @@ app.get('/api/shared-files', authenticate, async (req: any, res) => {
 });
 
 app.post('/api/files', authenticate, async (req: any, res) => {
+  // Ensure parent folders exist for bulk upload
+  if (req.body.path && req.body.path !== '/') {
+    const parts = req.body.path.split('/').filter(Boolean);
+    let currentCheckPath = '/';
+    for (const part of parts) {
+      const folderName = part;
+      const folderExists = await File.findOne({ owner: req.user.id, name: folderName, path: currentCheckPath, isFolder: true });
+      if (!folderExists) {
+        await File.create({ name: folderName, isFolder: true, path: currentCheckPath, owner: req.user.id });
+      }
+      currentCheckPath += folderName + '/';
+    }
+  }
   const file = await File.create({ ...req.body, owner: req.user.id });
   res.json(file);
 });
@@ -207,13 +232,12 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
   const session = getRSession(userId);
   const plotPath = `/tmp/plot_${userId}.png`;
 
-  // Clear previous output for this command
-  session.output = '';
+  session.output = ''; // Reset output for this specific run
 
-  // To detect when a command is done, we use a sentinel
-  const sentinel = `---DONE-${Date.now()}---`;
+  const sentinel = `SENTINEL_DONE_${Date.now()}`;
   
-  // Wrap code to capture plots and variables
+  // We use source() from a temporary file to minimize echoing of the wrapper code itself
+  const scriptPath = `/tmp/script_${userId}.R`;
   const wrappedCode = `
     tryCatch({
       ${code}
@@ -221,41 +245,38 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
     if (dev.cur() > 1) dev.off()
     cat("${sentinel}\\n")
     
-    # Capture variables
-    library(jsonlite)
+    # Silently capture variables
+    suppressMessages(library(jsonlite, quietly=TRUE))
     var_list <- list()
     for (v in ls()) {
+      if (v == "var_list") next
       val <- get(v)
       if (is.vector(val) || is.matrix(val) || is.data.frame(val)) {
         var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
       }
     }
-    cat("VARS:", serialize(var_list, NULL, ascii=TRUE), "\\n")
+    write_json(var_list, "/tmp/vars_${userId}.json")
   `;
 
-  session.process.stdin.write(wrappedCode + '\n');
+  fs.writeFileSync(scriptPath, wrappedCode);
+  session.process.stdin.write(`source("${scriptPath}")\n`);
 
-  // Wait for sentinel
   let checkCount = 0;
   const waitForDone = setInterval(() => {
     checkCount++;
     if (session.output.includes(sentinel) || checkCount > 100) {
       clearInterval(waitForDone);
       
-      let finalOutput = session.output.split(sentinel)[0];
-      // Filter out the startup noise if any
-      finalOutput = finalOutput.replace(/^> /gm, '').trim();
+      let finalOutput = session.output;
+      // Remove echoed lines and sentinel
+      finalOutput = finalOutput.split(sentinel)[0];
+      finalOutput = finalOutput.replace(new RegExp(`source\\("${scriptPath}"\\)`, 'g'), '');
+      // Remove leading/trailing prompts and whitespace
+      finalOutput = finalOutput.replace(/^> /gm, '').replace(/^\+ /gm, '').trim();
 
-      // Extract variables
-      let variables = {};
-      const varMatch = session.output.match(/VARS: (.*)\n/);
-      // Note: serialize/unserialize is complex over text, sticking to jsonlite for variables
-      // But we need a separate way to get them without polluting output
-      
-      // Let's re-run a silent json extraction for variables
       const varFile = `/tmp/vars_${userId}.json`;
-      session.process.stdin.write(`write_json(var_list, "${varFile}")\n`);
-
+      let variables = {};
+      
       setTimeout(() => {
         if (fs.existsSync(varFile)) {
           try { variables = JSON.parse(fs.readFileSync(varFile, 'utf8')); } catch (e) {}
@@ -268,11 +289,10 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
           fs.unlinkSync(plotPath);
         }
 
-        // Clean up output (remove null device 1 and sentinel)
         const cleanStdout = finalOutput.replace(/null device\s*\n\s*1\s*/g, '').trim();
-
         res.json({ stdout: cleanStdout, plot: plotBase64, variables });
-      }, 100);
+        if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
+      }, 50);
     }
   }, 100);
 });

@@ -48,13 +48,35 @@ function App() {
 
   useEffect(() => { document.title = "R"; }, []);
 
+  // Initialization
   useEffect(() => {
     if (token) {
-      fetchFiles();
-      fetchSharedFiles();
-      if (user.isAdmin) fetchUsers();
+      const init = async () => {
+        const allFiles = await fetchFiles();
+        const shared = await fetchSharedFiles();
+        
+        // Restore open files from user profile
+        if (user.openFileIds && user.openFileIds.length > 0) {
+          const restored = allFiles.filter((f: any) => user.openFileIds.includes(f._id));
+          const sharedRestored = shared.filter((f: any) => user.openFileIds.includes(f._id));
+          const combined = [...restored, ...sharedRestored];
+          setOpenFiles(combined.map(f => ({ ...f, draftContent: f.draftContent || f.content || '' })));
+          if (combined.length > 0) setActiveFileId(combined[0]._id);
+        }
+        
+        if (user.isAdmin) fetchUsers();
+      };
+      init();
     }
   }, [token]);
+
+  // Sync open files to server
+  useEffect(() => {
+    if (token && openFiles.length > 0) {
+      const fileIds = openFiles.map(f => f._id);
+      axios.put('/api/user/open-files', { fileIds }, { headers: { Authorization: `Bearer ${token}` } });
+    }
+  }, [openFiles, token]);
 
   useEffect(() => {
     const handleUpdate = (data: any) => {
@@ -74,14 +96,16 @@ function App() {
     try {
       const res = await axios.get('/api/files', { headers: { Authorization: `Bearer ${token}` } });
       setFiles(res.data);
-    } catch (e) { console.error(e); }
+      return res.data;
+    } catch (e) { console.error(e); return []; }
   };
 
   const fetchSharedFiles = async () => {
     try {
       const res = await axios.get('/api/shared-files', { headers: { Authorization: `Bearer ${token}` } });
       setSharedFiles(res.data);
-    } catch (e) { console.error(e); }
+      return res.data;
+    } catch (e) { console.error(e); return []; }
   };
 
   const fetchUsers = async () => {
@@ -280,9 +304,8 @@ function App() {
           let uploadPath = currentPath;
           if (isFolder && file.webkitRelativePath) {
             const parts = file.webkitRelativePath.split('/');
-            parts.pop(); // Remove file name
+            parts.pop(); 
             if (parts.length > 0) {
-              // Ensure folders exist (simplified: just add to path)
               uploadPath = currentPath + parts.join('/') + '/';
             }
           }

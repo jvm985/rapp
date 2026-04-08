@@ -15,16 +15,22 @@ else
   echo "✅ Auth OK"
 fi
 
-# R Exec Test
+# Persistence Test Part 1: Set variable
+curl -s -X POST "$URL/api/execute" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"code":"x_persistence_test <- 42"}' > /dev/null
+
+# Persistence Test Part 2: Read variable
 EXEC_RES=$(curl -s -X POST "$URL/api/execute" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"code":"print(1+1)"}')
+  -d '{"code":"print(x_persistence_test)"}')
 
-if echo "$EXEC_RES" | grep -q "\[1\] 2"; then
-  echo "✅ R Exec OK"
+if echo "$EXEC_RES" | grep -q "\[1\] 42"; then
+  echo "✅ R Persistence OK"
 else
-  echo "❌ R Exec FAILED. Response: $EXEC_RES"
+  echo "❌ R Persistence FAILED. Response: $EXEC_RES"
   exit 1
 fi
 
