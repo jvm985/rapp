@@ -1,9 +1,14 @@
 # Server Dockerfile
-FROM node:20-slim
+FROM rocker/r-ver:4.4.2
+
+# Install Node.js
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
 # Install system dependencies for common R packages
 RUN apt-get update && apt-get install -y \
-    r-base \
     libcurl4-openssl-dev \
     libssl-dev \
     libxml2-dev \
@@ -16,6 +21,7 @@ RUN apt-get update && apt-get install -y \
     libjpeg-dev \
     libnlopt-dev \
     cmake \
+    pandoc \
     && rm -rf /var/lib/apt/lists/*
 
 # Install a wide range of useful R packages

@@ -33,8 +33,12 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 verbeterpunten
 --------------
 - waarom gebruik je nog scp om te deployen? maak het proper: deploy alles naar github, dan naar productie en build daar
-- filemanager: voorzie knippen, plakken, kopieren, delen, naam wijzigen, downloaden
+- filemanager: voorzie per file: knippen, plakken, kopieren, delen, naam wijzigen, downloaden
+- filemanager: voorzie een tablad voor bestanden die zijn gedeeld met mij door andere gebruikers. deze bestanden mag ik alleen kunnen openen en bewerken, dus niet delen, naam wijzigen, verwijderen, kopieren
+- filemanager: uploaden, nieuwe map, nieuw bestand
 - plots: voorzie download
 - plots: voorzie navigatie naar vorige-volgende plot, en ook een wis alles knop
-- test front en backend grondig voor je zegt dat je klaar bent
 - schrijf een volledige technische documentatie van de R app, zodat je volgende sessie dat kan lezen en direct mee bent met alles. bewaar dat in technisch.txt
+- voorzie een favicon R
+- titel van de app is R, niet R editor. voorzie dit ook voor titelvenster browser
+- test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.
