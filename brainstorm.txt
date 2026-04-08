@@ -53,20 +53,19 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 - users moeten ook mappen kunnen delen
 - voorzie op het inlogscherm nog twee knoppen: login als leerling A en leerling B (om te kunnen testen)
 - ik zie geen R resultaten meer in de console, ook geen plots
+- bij delen: Bij de vraag "moet de gebruiker kunnen schrijven" verschijnt een fout dialoogscherm. er moet staan: ja, neen, annuleren.
+- navigatie in filemanager met breadcrumbs, niet met ".." om naar boven te gaan
+- laatste plot verschijnt niet automatisch
+- het navigeren door gedeelde mappen verloopt foutief
 
 verbeterpunten
 --------------
 
 - wanneer ik nu een R commando geef, krijg ik in de console altijd iets als dit:
-options(device = function(...) { 
-
-<3972807ad4e66884be.png", width = 800, height = 600)
-  })
 
 <4be.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
 
-- beheerder moeten mappen en bestanden kunnen delen met iedereen, door een vinkje te plaatsen, niet "everyone" te typen. Bij de vraag "moet de gebruiker kunnen schrijven" verschijnt een fout dialoogscherm. er moet staan: ja, neen, annuleren.
-
-- navigatie in filemanager met breadcrumbs, niet met ".." om naar boven te gaan
-- het navigeren door gedeelde mappen verloopt foutief
+- beheerder moeten mappen en bestanden kunnen delen met iedereen, door een vinkje te plaatsen, niet "everyone" te typen. doe dit opnieuw en beter, dus onder het invoervak email, gewoon een vinkje "delen met iedereen"
+- een gedeelde map moet ook alle bestanden bevatten die er in zitten, en ook submappen; dus de volledige map delen
+- plots verschijnen niet wanneer ik een reeks R commando's uitvoer
 - test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.

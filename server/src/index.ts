@@ -141,14 +141,44 @@ app.get('/api/files', authenticate, async (req: any, res) => {
 });
 
 app.get('/api/shared-files', authenticate, async (req: any, res) => {
-  const files = await File.find({ 
+  // Find all folders shared with this user
+  const sharedFolders = await File.find({
+    isFolder: true,
     $or: [
       { 'sharedWith.email': req.user.email },
       { 'sharedWith.email': 'everyone' }
-    ],
-    owner: { $ne: req.user.id } 
-  }).populate('owner', 'name email').sort({ lastModified: -1 });
-  res.json(files);
+    ]
+  });
+
+  // Construct a list of paths that are shared
+  const sharedPaths = sharedFolders.map(f => ({ owner: f.owner, fullPath: f.path + f.name + '/' }));
+
+  // Find all files/folders that are:
+  // 1. Directly shared
+  // 2. OR inside a shared folder (by the same owner)
+  const query = {
+    owner: { $ne: req.user.id },
+    $or: [
+      { 'sharedWith.email': req.user.email },
+      { 'sharedWith.email': 'everyone' }
+    ]
+  };
+
+  const directlyShared = await File.find(query).populate('owner', 'name email');
+  
+  // Now add children of shared folders
+  const additionalFiles: any[] = [];
+  for (const sp of sharedPaths) {
+    const children = await File.find({
+      owner: sp.owner,
+      path: new RegExp('^' + sp.fullPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      _id: { $nin: directlyShared.map(d => d._id) } // Avoid duplicates
+    }).populate('owner', 'name email');
+    additionalFiles.push(...children);
+  }
+
+  const allShared = [...directlyShared, ...additionalFiles].sort({ isFolder: -1, name: 1 });
+  res.json(allShared);
 });
 
 app.post('/api/files', authenticate, async (req: any, res) => {
@@ -187,8 +217,23 @@ app.put('/api/files/:id', authenticate, async (req: any, res) => {
   const file = await File.findById(req.params.id);
   if (!file) return res.status(404).send('Not found');
   
+  // Recursive write access check: if any parent is shared with write access
   const isOwner = file.owner.toString() === req.user.id;
-  const isSharedWrite = file.sharedWith.some(s => (s.email === req.user.email || s.email === 'everyone') && s.permission === 'write');
+  let isSharedWrite = file.sharedWith.some(s => (s.email === req.user.email || s.email === 'everyone') && s.permission === 'write');
+  
+  if (!isOwner && !isSharedWrite && !req.user.isAdmin) {
+    // Check parents
+    const pathParts = file.path.split('/').filter(Boolean);
+    let currentPath = '/';
+    for (const part of pathParts) {
+      const parent = await File.findOne({ owner: file.owner, name: part, path: currentPath, isFolder: true });
+      if (parent && parent.sharedWith.some(s => (s.email === req.user.email || s.email === 'everyone') && s.permission === 'write')) {
+        isSharedWrite = true;
+        break;
+      }
+      currentPath += part + '/';
+    }
+  }
   
   if (!isOwner && !isSharedWrite && !req.user.isAdmin) return res.status(403).send('No write access');
   
@@ -241,7 +286,6 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
 
   // 1. Prepare working directory with user's files
   if (!fs.existsSync(workDir)) fs.mkdirSync(workDir);
-  // Clear workDir first? Maybe not, just overwrite.
   const pathFiles = await File.find({ owner: userId, path: currentPath, isFolder: false });
   for (const f of pathFiles) {
     fs.writeFileSync(path.join(workDir, f.name), f.draftContent || f.content || '');
@@ -280,22 +324,24 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
   `;
 
   fs.writeFileSync(scriptPath, wrappedCode);
-  // Using source with echo=FALSE to minimize noise
   session.process.stdin.write(`source("${scriptPath}", echo=FALSE, verbose=FALSE, print.eval=TRUE)\n`);
 
   let checkCount = 0;
   const waitForDone = setInterval(() => {
     checkCount++;
-    if (session.output.includes(sentinel) || checkCount > 100) {
+    if (session.output.includes(sentinel) || checkCount > 150) {
       clearInterval(waitForDone);
       
       let finalOutput = session.output;
-      // Remove wrapper noise
       finalOutput = finalOutput.split(sentinel)[0];
-      finalOutput = finalOutput.replace(new RegExp(`source\\("${scriptPath}".*\\)`, 'g'), '');
       
-      // Intensive filtering of the wrapper lines the user saw
-      finalOutput = finalOutput.replace(/ryCatch\(\{/g, '');
+      // Intensive filtering of ALL wrapper noise
+      finalOutput = finalOutput.replace(new RegExp(`source\\("${scriptPath}".*\\)`, 'g'), '');
+      finalOutput = finalOutput.replace(/options\(device = function\(\.\.\.\) \{.*\n.*\n\s*\}\)/g, '');
+      finalOutput = finalOutput.replace(/setwd\(".*"\)/g, '');
+      finalOutput = finalOutput.replace(/options\(warn=-1\)/g, '');
+      finalOutput = finalOutput.replace(/suppressMessages\(library\(jsonlite, quietly=TRUE\)\)/g, '');
+      finalOutput = finalOutput.replace(/tryCatch\(\{/g, '');
       finalOutput = finalOutput.replace(/if \(dev\.cur\(\) > 1\) dev\.off\(\)/g, '');
       finalOutput = finalOutput.replace(/cat\("SENTINEL_DONE_.*\n/g, '');
       
@@ -320,7 +366,7 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
         const cleanStdout = finalOutput.replace(/null device\s*\n\s*1\s*/g, '').trim();
         res.json({ stdout: cleanStdout, plot: plotBase64, variables });
         if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-      }, 100);
+      }, 150); // Increased wait for PNG flush
     }
   }, 100);
 });

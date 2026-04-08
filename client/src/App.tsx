@@ -34,6 +34,7 @@ function App() {
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [clipboard, setClipboard] = useState<{ ids: string[], action: 'copy' | 'cut' } | null>(null);
   const [activeDropdown, setActiveDropdown] = useState<'upload' | 'more' | null>(null);
+  const [showShareModal, setShowShareModal] = useState<any>(null);
 
   // Custom Resize State
   const [leftWidth, setLeftWidth] = useState(65); 
@@ -128,9 +129,7 @@ function App() {
 
   const openFile = (file: any) => {
     if (file.isFolder) {
-      // For shared folders, we need to handle the path carefully
       if (sidebarTab === 'shared') {
-        // Just set the path to folder's path + name
         setCurrentPath(file.path + file.name + '/');
       } else {
         setCurrentPath(currentPath === '/' ? `/${file.name}/` : `${currentPath}${file.name}/`);
@@ -211,8 +210,12 @@ function App() {
       if (newOutput) setOutput(prev => prev + newOutput + '\n');
       if (res.data.plot) {
         const newPlot = `data:image/png;base64,${res.data.plot}`;
-        setPlots(prev => [...prev, newPlot]);
-        setPlotIndex(plots.length); 
+        setPlots(prev => {
+          const next = [...prev, newPlot];
+          setPlotIndex(next.length - 1); // Auto-jump to latest
+          return next;
+        });
+        setRightTab('files'); // Ensure Plot tab is active
       }
       if (res.data.variables) setVariables(res.data.variables);
     } catch (err) { setOutput(prev => prev + 'Fout bij uitvoeren.\n'); }
@@ -227,7 +230,7 @@ function App() {
   const renameSelected = async () => {
     if (selectedFileIds.size !== 1) return;
     const id = Array.from(selectedFileIds)[0];
-    const file = files.find(f => f._id === id);
+    const file = (sidebarTab === 'my' ? files : sharedFiles).find(f => f._id === id);
     const newName = prompt('Nieuwe naam:', file.name);
     if (!newName || newName === file.name) return;
     await axios.put(`/api/files/${id}`, { name: newName }, { headers: { Authorization: `Bearer ${token}` } });
@@ -245,28 +248,13 @@ function App() {
     fetchFiles();
   };
 
-  const shareSelected = async () => {
-    if (selectedFileIds.size !== 1) return;
-    const id = Array.from(selectedFileIds)[0];
-    const file = files.find(f => f._id === id);
-    
-    let email = '';
-    if (user.isAdmin && confirm('Delen met iedereen (ja) of specifieke gebruiker (nee)?')) {
-      email = 'everyone';
-    } else {
-      email = prompt('Email van de gebruiker:') || '';
-    }
-    
-    if (!email) return;
-    
-    const writeResponse = prompt('Mag deze gebruiker ook aanpassen? (Typ "ja" voor schrijven, "nee" voor alleen lezen)');
-    if (writeResponse === null) return; // Cancelled
-    const perm = writeResponse.toLowerCase() === 'ja' ? 'write' : 'read';
-    
-    const sharedWith = [...(file.sharedWith || []), { email, permission: perm }];
-    await axios.put(`/api/files/${id}`, { sharedWith }, { headers: { Authorization: `Bearer ${token}` } });
+  const handleShareSubmit = async (email: string, permission: 'read' | 'write') => {
+    const fileId = showShareModal._id;
+    const file = (sidebarTab === 'my' ? files : sharedFiles).find(f => f._id === fileId);
+    const sharedWith = [...(file.sharedWith || []), { email, permission }];
+    await axios.put(`/api/files/${fileId}`, { sharedWith }, { headers: { Authorization: `Bearer ${token}` } });
     fetchFiles();
-    setActiveDropdown(null);
+    setShowShareModal(null);
   };
 
   const copySelected = (action: 'copy' | 'cut') => {
@@ -291,7 +279,7 @@ function App() {
 
   const downloadSelected = () => {
     selectedFileIds.forEach(id => {
-      const file = files.find(f => f._id === id);
+      const file = (sidebarTab === 'my' ? files : sharedFiles).find(f => f._id === id);
       if (file && !file.isFolder) {
         const blob = new Blob([file.content || ''], { type: 'text/plain' });
         const url = window.URL.createObjectURL(blob);
@@ -387,7 +375,6 @@ function App() {
   }
 
   const breadcrumbs = currentPath.split('/').filter(Boolean);
-  // Shared folders logic: if a folder is shared, its children should appear when currentPath matches its full path.
   const currentFilesList = sidebarTab === 'my' 
     ? files.filter(f => f.path === currentPath) 
     : sharedFiles.filter(f => f.path === currentPath);
@@ -408,7 +395,6 @@ function App() {
       </header>
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Left Column */}
         <div style={{ width: `${leftWidth}%`, display: 'flex', flexDirection: 'column', borderRight: '4px solid #111' }}>
           <div style={{ height: `${editorHeight}%`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ height: '35px', background: '#252526', display: 'flex', overflowX: 'auto', borderBottom: '1px solid #111', flexShrink: 0 }}>
@@ -458,7 +444,6 @@ function App() {
 
         <div onMouseDown={() => isResizingV.current = true} style={{ width: '4px', background: '#111', cursor: 'col-resize', zIndex: 10, flexShrink: 0 }} />
 
-        {/* Right Column */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ height: `${fileManagerHeight}%`, background: '#252526', display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
             {/* Toolbar */}
@@ -483,7 +468,7 @@ function App() {
                 <button onClick={() => setActiveDropdown(activeDropdown === 'more' ? null : 'more')} disabled={selectedFileIds.size === 0} className="toolbar-btn"><MoreHorizontal size={14}/> More</button>
                 {activeDropdown === 'more' && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 20, minWidth: '120px', borderRadius: '4px' }}>
-                    <div onClick={shareSelected} className="menu-item"><Share2 size={12}/> Share</div>
+                    <div onClick={() => { setShowShareModal((sidebarTab === 'my' ? files : sharedFiles).find(f => f._id === Array.from(selectedFileIds)[0])); setActiveDropdown(null); }} className="menu-item"><Share2 size={12}/> Share</div>
                     <div onClick={() => copySelected('copy')} className="menu-item"><Copy size={12}/> Copy</div>
                     <div onClick={() => copySelected('cut')} className="menu-item"><Scissors size={12}/> Cut</div>
                     <div onClick={downloadSelected} className="menu-item"><Download size={12}/> Download</div>
@@ -491,7 +476,7 @@ function App() {
                 )}
               </div>
               <div style={{ flex: 1 }} />
-              <button onClick={fetchFiles} className="toolbar-btn"><RefreshCw size={14}/></button>
+              <button onClick={() => { fetchFiles(); fetchSharedFiles(); }} className="toolbar-btn"><RefreshCw size={14}/></button>
             </div>
             
             <div style={{ background: '#2d2d2d', borderBottom: '1px solid #111', flexShrink: 0 }}>
@@ -580,6 +565,37 @@ function App() {
           </div>
         </div>
       </div>
+
+      {showShareModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: 'white', padding: '25px', borderRadius: '8px', width: '400px', color: '#333' }}>
+            <h3 style={{ marginTop: 0 }}>Delen: {showShareModal.name}</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>E-mailadres:</label>
+                <input id="share-email" type="email" placeholder="naam@voorbeeld.com" style={{ width: '100%', padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }} />
+              </div>
+              {user.isAdmin && (
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '12px' }}>
+                  <input type="checkbox" id="share-everyone" onChange={(e) => { 
+                    const emailInput = document.getElementById('share-email') as HTMLInputElement;
+                    if (e.target.checked) emailInput.value = 'everyone'; else emailInput.value = '';
+                  }} />
+                  Delen met iedereen
+                </label>
+              )}
+              <div>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Permissie:</label>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button onClick={() => handleShareSubmit((document.getElementById('share-email') as HTMLInputElement).value, 'read')} style={{ flex: 1, padding: '8px', background: '#f8f9fa', border: '1px solid #ddd', borderRadius: '4px', cursor: 'pointer' }}>Alleen lezen</button>
+                  <button onClick={() => handleShareSubmit((document.getElementById('share-email') as HTMLInputElement).value, 'write')} style={{ flex: 1, padding: '8px', background: '#3498db', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>Bewerken (Ja)</button>
+                </div>
+              </div>
+              <button onClick={() => setShowShareModal(null)} style={{ padding: '8px', background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}>Annuleren</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAdmin && (
         <div style={{ position: 'fixed', inset: '45px 0 0 0', background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }}>
