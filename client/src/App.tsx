@@ -4,8 +4,8 @@ import Editor from '@monaco-editor/react';
 import { 
   Play, Save, FileText, Layout, LogOut, Plus, Trash2, UserCog, X, 
   FolderPlus, Folder, Database, ChevronRight, Home, Eraser, 
-  Download, Copy, Scissors, Clipboard, Share2, Edit3, ChevronLeft,
-  Share, Users
+  Download, Copy, Scissors, Clipboard, Edit3, ChevronLeft,
+  Users
 } from 'lucide-react';
 import io from 'socket.io-client';
 import axios from 'axios';
@@ -28,7 +28,7 @@ function App() {
   const [users, setUsers] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [rightTab, setRightTab] = useState<'files' | 'vars'>('files');
-  const [sidebarTab, setSidebarTab] = useState<'my' | 'shared'>('files');
+  const [sidebarTab, setSidebarTab] = useState<'my' | 'shared'>('my');
   const [currentPath, setCurrentPath] = useState('/');
   
   // Clipboard state for file manager
@@ -264,7 +264,7 @@ function App() {
   }
 
   const breadcrumbs = currentPath.split('/').filter(Boolean);
-  const currentFiles = sidebarTab === 'files' ? files.filter(f => f.path === currentPath) : sharedFiles;
+  const currentFilesList = sidebarTab === 'my' ? files.filter(f => f.path === currentPath) : sharedFiles;
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#1e1e1e', color: 'white' }}>
@@ -321,11 +321,11 @@ function App() {
           <div style={{ height: `${fileManagerHeight}%`, background: '#252526', display: 'flex', flexDirection: 'column' }}>
             <div style={{ background: '#2d2d2d', borderBottom: '1px solid #111' }}>
               <div style={{ display: 'flex', borderBottom: '1px solid #222' }}>
-                <button onClick={() => setSidebarTab('files')} style={{ flex: 1, padding: '8px', background: sidebarTab === 'files' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'files' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}><FileText size={12}/> MIJN BESTANDEN</button>
+                <button onClick={() => setSidebarTab('my')} style={{ flex: 1, padding: '8px', background: sidebarTab === 'my' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'my' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}><FileText size={12}/> MIJN BESTANDEN</button>
                 <button onClick={() => setSidebarTab('shared')} style={{ flex: 1, padding: '8px', background: sidebarTab === 'shared' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'shared' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}><Users size={12}/> GEDEELD</button>
               </div>
               <div style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                {sidebarTab === 'files' ? (
+                {sidebarTab === 'my' ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#3498db', overflowX: 'auto', flex: 1 }}>
                     <Home size={12} onClick={() => setCurrentPath('/')} style={{ cursor: 'pointer' }} />
                     {breadcrumbs.map((b, i) => (
@@ -337,31 +337,31 @@ function App() {
                   </div>
                 ) : <span style={{ fontSize: '11px', color: '#888' }}>Gedeeld met mij</span>}
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  {sidebarTab === 'files' && (
+                  {sidebarTab === 'my' && (
                     <>
-                      {clipboard && <Clipboard size={14} onClick={pasteFile} style={{ cursor: 'pointer', color: '#2ecc71' }} title="Plakken"/>}
-                      <FolderPlus size={14} onClick={() => createFile(true)} style={{ cursor: 'pointer' }} />
-                      <Plus size={16} onClick={() => createFile(false)} style={{ cursor: 'pointer' }} />
+                      {clipboard && <div style={{ cursor: 'pointer', color: '#2ecc71' }} onClick={pasteFile}><Clipboard size={14} /></div>}
+                      <div style={{ cursor: 'pointer', color: '#888' }} onClick={() => createFile(true)}><FolderPlus size={14} /></div>
+                      <div style={{ cursor: 'pointer', color: '#888' }} onClick={() => createFile(false)}><Plus size={16} /></div>
                     </>
                   )}
                 </div>
               </div>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '5px' }}>
-              {currentFiles.length === 0 && <div style={{ textAlign: 'center', padding: '20px', color: '#444', fontSize: '12px' }}>Niets gevonden.</div>}
-              {currentFiles.map(f => (
+              {currentFilesList.length === 0 && <div style={{ textAlign: 'center', padding: '20px', color: '#444', fontSize: '12px' }}>Niets gevonden.</div>}
+              {currentFilesList.map(f => (
                 <div key={f._id} onClick={() => openFile(f)} className="file-item" style={{ padding: '6px 10px', fontSize: '13px', cursor: 'pointer', background: activeFileId === f._id ? '#37373d' : 'transparent', display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '4px' }}>
                   {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color={f.owner?._id === user.id ? "#3498db" : "#f1c40f"}/>}
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
                   <div className="file-actions" style={{ display: 'flex', gap: '8px' }}>
-                    {sidebarTab === 'files' && (
+                    {sidebarTab === 'my' && (
                       <>
-                        <Download size={12} onClick={(e) => { e.stopPropagation(); downloadFile(f); }}/>
-                        <Copy size={12} onClick={(e) => { e.stopPropagation(); copyToClipboard(f._id, 'copy'); }}/>
-                        <Scissors size={12} onClick={(e) => { e.stopPropagation(); copyToClipboard(f._id, 'cut'); }}/>
-                        <Edit3 size={12} onClick={(e) => { e.stopPropagation(); renameFile(f); }}/>
-                        <Share size={12} onClick={(e) => { e.stopPropagation(); shareFile(f); }}/>
-                        <Trash2 size={12} onClick={(e) => { e.stopPropagation(); if (confirm('Verwijderen?')) axios.delete(`/api/files/${f._id}`, { headers: { Authorization: `Bearer ${token}` } }).then(fetchFiles); }}/>
+                        <div onClick={(e) => { e.stopPropagation(); downloadFile(f); }}><Download size={12}/></div>
+                        <div onClick={(e) => { e.stopPropagation(); copyToClipboard(f._id, 'copy'); }}><Copy size={12}/></div>
+                        <div onClick={(e) => { e.stopPropagation(); copyToClipboard(f._id, 'cut'); }}><Scissors size={12}/></div>
+                        <div onClick={(e) => { e.stopPropagation(); renameFile(f); }}><Edit3 size={12}/></div>
+                        <div onClick={(e) => { e.stopPropagation(); shareFile(f); }}><Share2 size={12}/></div>
+                        <div onClick={(e) => { e.stopPropagation(); if (confirm('Verwijderen?')) axios.delete(`/api/files/${f._id}`, { headers: { Authorization: `Bearer ${token}` } }).then(fetchFiles); }}><Trash2 size={12}/></div>
                       </>
                     )}
                   </div>
