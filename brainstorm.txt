@@ -59,17 +59,25 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 - het navigeren door gedeelde mappen verloopt foutief
 - beheerder moeten mappen en bestanden kunnen delen met iedereen, door een vinkje te plaatsen, niet "everyone" te typen. doe dit opnieuw en beter, dus onder het invoervak email, gewoon een vinkje "delen met iedereen"
 - een gedeelde map moet ook alle bestanden bevatten die er in zitten, en ook submappen; dus de volledige map delen
+- bij variabelen: toon enkel die van de gebruiker, geen systeem dingen
+- als ik een nieuw bestand of map maak, moet die onmiddellijk in de filemanager verschijnen
+- een gedeeld bestand dat ik open, verschijnt in filemanager bij mijn eigen bestanden
+- het samen werken aan 1 bestand lukt niet: het zijn blijkbaar afzonderlijke bestanden geworden
+
 
 verbeterpunten
 --------------
+in console verschijnt dit nog: 
+options(device = function(...) { 
 
+<07ad4e66884be_%03d.png", width = 800, height = 600)
+  })
+
+in console verschijnt dit nog: <4be.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
 
 - plots verschijnen niet allemaal wanneer ik een reeks R commando's uitvoer: enkel de laatste
-- bij variabelen: toon enkel die van de gebruiker, geen systeem dingen
-- verwijderknop plots: laat user kiezen enkel huidige plot verwijderen, of allemaal. zelfde voor download knop.
-- als ik een nieuw bestand of map maak, moet die onmiddellijk in de filemanager verschijnen
-- in console verschijnt dit nog: <4be.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
+- geddelde bestanden of mappen mag je nooit kunnen verwijderen, tenzij ze van jezelf zijn
+- verwijderknop plots: laat user kiezen enkel huidige plot verwijderen, of allemaal. zelfde voor download knop. het dialoogvenster moet drie knoppen bevatten alle, enkel huidige en annuleren
+- wanneer ik een bestand deel als alleen lezen, kunnen de anderen er toch in werken. je moet het bewerken uitschakelen in de editor.
 - test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.
-- een gedeeld bestand dat ik open, verschijnt in filemanager bij mijn eigen bestanden
-- het samen werken aan 1 bestand lukt niet: het zijn blijkbaar afzonderlijke bestanden geworden
-- 
+ 

@@ -69,10 +69,13 @@ const getRSession = (userId: string) => {
   const rProcess = spawn('R', ['--vanilla', '--quiet', '--interactive']);
   const session = { process: rProcess, output: '' };
   
-  rProcess.stdout.on('data', (data) => { session.output += data.toString(); });
-  rProcess.stderr.on('data', (data) => { session.output += data.toString(); });
+  rProcess.stdout.on('data', (data) => { 
+    session.output += data.toString(); 
+  });
+  rProcess.stderr.on('data', (data) => { 
+    session.output += data.toString(); 
+  });
   
-  // Multiple plot support with %03d
   rProcess.stdin.write(`options(device = function(...) { 
     png(file = "/tmp/plot_${userId}_%03d.png", width = 800, height = 600)
   })\n`);
@@ -190,7 +193,7 @@ app.post('/api/files', authenticate, async (req: any, res) => {
     }
   }
   const file = await File.create({ ...req.body, owner: req.user.id });
-  io.emit('files-changed', { ownerId: req.user.id }); // Notify for instant refresh
+  io.emit('files-changed', { ownerId: req.user.id });
   res.json(file);
 });
 
@@ -281,7 +284,6 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
   const session = getRSession(userId);
   const workDir = `/tmp/r_work_${userId}`;
 
-  // Prepare working directory
   if (!fs.existsSync(workDir)) fs.mkdirSync(workDir);
   const pathFiles = await File.find({ owner: userId, path: currentPath, isFolder: false });
   for (const f of pathFiles) {
@@ -309,13 +311,12 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
     while(dev.cur() > 1) dev.off()
     cat("${sentinel}\\n")
     
-    # Capture variables - filter system ones
+    # Silently capture variables - filter system ones
     var_list <- list()
     all_objs <- ls(all.names=FALSE)
     for (v in all_objs) {
       if (v == "var_list" || v == "all_objs") next
       val <- get(v)
-      # Only show non-functions and non-environments
       if (!is.function(val) && !is.environment(val)) {
         var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
       }
@@ -336,7 +337,7 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
       
       // Cleanup all wrapper code echoes
       finalOutput = finalOutput.replace(new RegExp(`source\\("${scriptPath}".*\\)`, 'g'), '');
-      finalOutput = finalOutput.replace(/options\(device = function\(\.\.\.\) \{.*\n.*\n\s*\}\)/g, '');
+      finalOutput = finalOutput.replace(/options\(device = function\(\.\.\.\) \{[\s\S]*?\}\)/g, '');
       finalOutput = finalOutput.replace(/setwd\(".*"\)/g, '');
       finalOutput = finalOutput.replace(/options\(warn=-1\)/g, '');
       finalOutput = finalOutput.replace(/suppressMessages\(library\(jsonlite, quietly=TRUE\)\)/g, '');
@@ -344,9 +345,24 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
       finalOutput = finalOutput.replace(/while\(dev\.cur\(\) > 1\) dev\.off\(\)/g, '');
       finalOutput = finalOutput.replace(/cat\("SENTINEL_DONE_.*\n/g, '');
       
-      // Remove any line containing the script path (some R versions echo it differently)
-      const lines = finalOutput.split('\n').filter(l => !l.includes(scriptPath) && !l.includes('ryCatch') && !l.includes('dev.cur'));
-      finalOutput = lines.join('\n').replace(/^> /gm, '').replace(/^\+ /gm, '').trim();
+      // Intensive filtering of multi-line blocks
+      const lines = finalOutput.split('\n').filter(l => {
+        const trimmed = l.trim();
+        if (trimmed.startsWith('> source("')) return false;
+        if (trimmed.startsWith('> setwd("')) return false;
+        if (trimmed.startsWith('> options(')) return false;
+        if (trimmed.startsWith('> tryCatch({')) return false;
+        if (trimmed.startsWith('> while(dev.cur()')) return false;
+        if (trimmed.startsWith('+')) {
+           // Check if it's part of the wrapper code we want to hide
+           if (trimmed.includes('}, error = function(e)')) return false;
+           if (trimmed.includes('if (dev.cur()')) return false;
+           if (trimmed.includes('cat("SENTINEL_DONE')) return false;
+           if (trimmed.includes('png(file = "/tmp/plot')) return false;
+        }
+        return true;
+      });
+      finalOutput = lines.join('\n').replace(/^> /gm, '').trim();
 
       const varFile = `/tmp/vars_${userId}.json`;
       let variables = {};
@@ -357,7 +373,6 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
           fs.unlinkSync(varFile);
         }
 
-        // Capture ALL generated plots
         const plotFiles = fs.readdirSync('/tmp').filter(f => f.startsWith(`plot_${userId}_`)).sort();
         const plots = plotFiles.map(f => fs.readFileSync(path.join('/tmp', f)).toString('base64'));
         plotFiles.forEach(f => fs.unlinkSync(path.join('/tmp', f)));
@@ -365,7 +380,7 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
         const cleanStdout = finalOutput.replace(/null device\s*\n\s*1\s*/g, '').trim();
         res.json({ stdout: cleanStdout, plots, variables });
         if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-      }, 200);
+      }, 250);
     }
   }, 100);
 });
@@ -373,7 +388,6 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
 io.on('connection', (socket) => {
   socket.on('join-file', (fileId) => socket.join(fileId));
   socket.on('edit-file', (data) => {
-    // Broadcast edit to everyone else in the file room
     socket.to(data.fileId).emit('file-updated', data);
   });
 });
