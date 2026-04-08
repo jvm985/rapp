@@ -46,12 +46,11 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 - filemanager: daar moet je de bestanden niet in het rood tonen wanneer ze zijn gewijzigd
 - wanneer ik library() gebruik in R, moet die in de sessie environment blijven
 - in code editor: als ik op ctrl-enter druk, moet je de uidige lijn naar R sturen. 
+- bij inloggen, open de bestanden die tijdens laatste sessie open waren
 
 verbeterpunten
 --------------
-- bij inloggen, open de bestanden die tijdens laatste sessie open waren
-- filemanager: ik kan geen map uploaden: ze verschijnt niet bij mijn bestanden na de upload
-- test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.
+
 - wanneer ik nu een R commando geef, krijg ik in de console altijd iets als dit:
 ryCatch({
 + 
@@ -59,3 +58,11 @@ ryCatch({
 +     }, error = function(e) { cat("ERROR:", e$message, "\n") })
     if (dev.cur() > 1) dev.off()
 cat("
+
+- filemanager: als ik op upload klik, verschijnt ook het "more" menu
+- ik moet bestanden kunnen inlezen met R, vb. data<-read.csv2("data_test.csv")
+- beheerders zijn joachim.vanmeirvenne@atheneumkapellen.be, marc.vaneijmeren@atheneumkapellen.be en ilse.vanroosbroeck@atheneumkapellen.be
+- users moeten ook mappen kunnen delen
+- beheerder moeten mappen en bestanden kunnen delen met iedereen
+- voorzie op het inlogscherm nog twee knoppen: login als leerling A en leerling B (om te kunnen testen)
+- test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.

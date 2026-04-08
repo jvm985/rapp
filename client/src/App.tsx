@@ -33,7 +33,7 @@ function App() {
   
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [clipboard, setClipboard] = useState<{ ids: string[], action: 'copy' | 'cut' } | null>(null);
-  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [activeDropdown, setActiveDropdown] = useState<'upload' | 'more' | null>(null);
 
   // Custom Resize State
   const [leftWidth, setLeftWidth] = useState(65); 
@@ -201,7 +201,7 @@ function App() {
     }
 
     try {
-      const res = await axios.post('/api/execute', { code: codeToRun }, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.post('/api/execute', { code: codeToRun, currentPath }, { headers: { Authorization: `Bearer ${token}` } });
       const newOutput = (res.data.stdout || res.data.stderr || res.data.error || '').trim();
       if (newOutput) setOutput(prev => prev + newOutput + '\n');
       if (res.data.plot) {
@@ -243,21 +243,21 @@ function App() {
   const shareSelected = async () => {
     if (selectedFileIds.size !== 1) return;
     const id = Array.from(selectedFileIds)[0];
-    const email = prompt('Email van de gebruiker:');
+    const email = prompt('Email van de gebruiker (gebruik "everyone" om met iedereen te delen):');
     if (!email) return;
     const perm = confirm('Mag deze gebruiker schrijven?') ? 'write' : 'read';
     const file = files.find(f => f._id === id);
     const sharedWith = [...(file.sharedWith || []), { email, permission: perm }];
     await axios.put(`/api/files/${id}`, { sharedWith }, { headers: { Authorization: `Bearer ${token}` } });
     fetchFiles();
-    setShowMoreMenu(false);
+    setActiveDropdown(null);
   };
 
   const copySelected = (action: 'copy' | 'cut') => {
     if (selectedFileIds.size === 0) return;
     setClipboard({ ids: Array.from(selectedFileIds), action });
     setSelectedFileIds(new Set());
-    setShowMoreMenu(false);
+    setActiveDropdown(null);
   };
 
   const pasteClipboard = async () => {
@@ -284,7 +284,7 @@ function App() {
         a.click();
       }
     });
-    setShowMoreMenu(false);
+    setActiveDropdown(null);
   };
 
   const handleUpload = (isFolder = false) => {
@@ -343,14 +343,27 @@ function App() {
     localStorage.setItem('token', data.token); localStorage.setItem('user', JSON.stringify(data.user));
   };
 
+  const handleMockLogin = (email: string) => {
+    axios.post('/api/auth/mock', { email }).then(r => { 
+      setUser(r.data.user); setToken(r.data.token); 
+      localStorage.setItem('token', r.data.token); 
+      localStorage.setItem('user', JSON.stringify(r.data.user)); 
+    });
+  };
+
   if (!user) {
     return (
       <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5' }}>
         <div style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)', textAlign: 'center', width: '400px' }}>
-          <h1>R</h1>
-          <button onClick={() => { axios.post('/api/auth/mock', { email: 'test@gemini.com' }).then(r => { setUser(r.data.user); setToken(r.data.token); localStorage.setItem('token', r.data.token); localStorage.setItem('user', JSON.stringify(r.data.user)); }) }} style={{ width: '100%', padding: '12px', background: '#4a5568', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', marginBottom: '15px', fontWeight: 'bold' }}>Login als test@gemini.com</button>
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}><GoogleLogin onSuccess={handleLoginSuccess} /></GoogleOAuthProvider>
+          <h1 style={{ color: '#333' }}>R</h1>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <button onClick={() => handleMockLogin('test@gemini.com')} style={{ width: '100%', padding: '12px', background: '#4a5568', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Login als beheerder (Test)</button>
+            <button onClick={() => handleMockLogin('leerlingA@irishof.cloud')} style={{ width: '100%', padding: '12px', background: '#2d3748', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Login als Leerling A</button>
+            <button onClick={() => handleMockLogin('leerlingB@irishof.cloud')} style={{ width: '100%', padding: '12px', background: '#2d3748', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Login als Leerling B</button>
+            <div style={{ margin: '15px 0', borderTop: '1px solid #ddd' }} />
+            <div style={{ display: 'flex', justifyContent: 'center' }}>
+              <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}><GoogleLogin onSuccess={handleLoginSuccess} /></GoogleOAuthProvider>
+            </div>
           </div>
         </div>
       </div>
@@ -429,24 +442,27 @@ function App() {
         {/* Right Column */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ height: `${fileManagerHeight}%`, background: '#252526', display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
-            {/* Screenshot-style Toolbar */}
+            {/* Toolbar */}
             <div style={{ background: '#f8f9fa', color: '#333', padding: '4px 8px', display: 'flex', gap: '10px', borderBottom: '1px solid #ddd', alignItems: 'center', fontSize: '11px', flexShrink: 0 }}>
-              <button onClick={() => createFile(true)} className="toolbar-btn"><FolderPlus size={14} color="#27ae60"/> New Folder</button>
-              <button onClick={() => createFile(false)} className="toolbar-btn"><Plus size={14} color="#27ae60"/> New File</button>
+              <button onClick={() => { createFile(true); setActiveDropdown(null); }} className="toolbar-btn"><FolderPlus size={14} color="#27ae60"/> New Folder</button>
+              <button onClick={() => { createFile(false); setActiveDropdown(null); }} className="toolbar-btn"><Plus size={14} color="#27ae60"/> New File</button>
+              
               <div style={{ position: 'relative' }}>
-                <button className="toolbar-btn" onClick={() => setShowMoreMenu(!showMoreMenu)}><Upload size={14} color="#f39c12"/> Upload</button>
-                {showMoreMenu && (
+                <button className="toolbar-btn" onClick={() => setActiveDropdown(activeDropdown === 'upload' ? null : 'upload')}><Upload size={14} color="#f39c12"/> Upload</button>
+                {activeDropdown === 'upload' && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 20, minWidth: '120px', borderRadius: '4px' }}>
-                    <div onClick={() => { handleUpload(false); setShowMoreMenu(false); }} className="menu-item">Bestanden</div>
-                    <div onClick={() => { handleUpload(true); setShowMoreMenu(false); }} className="menu-item">Map</div>
+                    <div onClick={() => { handleUpload(false); setActiveDropdown(null); }} className="menu-item">Bestanden</div>
+                    <div onClick={() => { handleUpload(true); setActiveDropdown(null); }} className="menu-item">Map</div>
                   </div>
                 )}
               </div>
-              <button onClick={deleteSelected} disabled={selectedFileIds.size === 0} className="toolbar-btn"><Trash2 size={14} color="#e74c3c"/> Delete</button>
-              <button onClick={renameSelected} disabled={selectedFileIds.size !== 1} className="toolbar-btn"><Edit3 size={14} color="#3498db"/> Rename</button>
+
+              <button onClick={() => { deleteSelected(); setActiveDropdown(null); }} disabled={selectedFileIds.size === 0} className="toolbar-btn"><Trash2 size={14} color="#e74c3c"/> Delete</button>
+              <button onClick={() => { renameSelected(); setActiveDropdown(null); }} disabled={selectedFileIds.size !== 1} className="toolbar-btn"><Edit3 size={14} color="#3498db"/> Rename</button>
+              
               <div style={{ position: 'relative' }}>
-                <button onClick={() => setShowMoreMenu(!showMoreMenu)} disabled={selectedFileIds.size === 0} className="toolbar-btn"><MoreHorizontal size={14}/> More</button>
-                {showMoreMenu && (
+                <button onClick={() => setActiveDropdown(activeDropdown === 'more' ? null : 'more')} disabled={selectedFileIds.size === 0} className="toolbar-btn"><MoreHorizontal size={14}/> More</button>
+                {activeDropdown === 'more' && (
                   <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 20, minWidth: '120px', borderRadius: '4px' }}>
                     <div onClick={shareSelected} className="menu-item"><Share2 size={12}/> Share</div>
                     <div onClick={() => copySelected('copy')} className="menu-item"><Copy size={12}/> Copy</div>

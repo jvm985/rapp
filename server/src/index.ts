@@ -27,13 +27,20 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://mongodb:27017/rapp';
 
 mongoose.connect(MONGO_URI);
 
+const ADMINS = [
+  'joachim.vanmeirvenne@atheneumkapellen.be',
+  'marc.vaneijmeren@atheneumkapellen.be',
+  'ilse.vanroosbroeck@atheneumkapellen.be',
+  'test@gemini.com'
+];
+
 // Schemas
 const UserSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   name: String,
   picture: String,
   isAdmin: { type: Boolean, default: false },
-  openFileIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'File' }] // Persistent open files
+  openFileIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'File' }]
 });
 const User = mongoose.model('User', UserSchema);
 
@@ -59,7 +66,6 @@ const userSessions = new Map<string, { process: ChildProcessWithoutNullStreams, 
 const getRSession = (userId: string) => {
   if (userSessions.has(userId)) return userSessions.get(userId)!;
 
-  // Start R with --no-save to avoid clutter, but keeping it interactive for persistence
   const rProcess = spawn('R', ['--vanilla', '--quiet', '--interactive']);
   const session = { process: rProcess, output: '' };
   
@@ -70,7 +76,6 @@ const getRSession = (userId: string) => {
     session.output += data.toString(); 
   });
   
-  // Setup plot handling - override default plot device to png
   rProcess.stdin.write(`options(device = function(...) { 
     png(file = "/tmp/plot_${userId}.png", width = 800, height = 600)
   })\n`);
@@ -101,7 +106,7 @@ app.post('/api/auth/mock', async (req, res) => {
   const { email } = req.body;
   let user = await User.findOne({ email });
   if (!user) {
-    user = await User.create({ email, name: email.split('@')[0], isAdmin: email === 'test@gemini.com' || email === 'joachim.vanmeirvenne@atheneumkapellen.be' });
+    user = await User.create({ email, name: email.split('@')[0], isAdmin: ADMINS.includes(email) });
   }
   const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, JWT_SECRET);
   res.json({ token, user });
@@ -116,14 +121,13 @@ app.post('/api/auth/google', async (req, res) => {
     if (!payload || !payload.email) throw new Error('No payload');
     let user = await User.findOne({ email: payload.email });
     if (!user) {
-      user = await User.create({ email: payload.email, name: payload.name, picture: payload.picture, isAdmin: payload.email === 'joachim.vanmeirvenne@atheneumkapellen.be' });
+      user = await User.create({ email: payload.email, name: payload.name, picture: payload.picture, isAdmin: ADMINS.includes(payload.email) });
     }
     const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, JWT_SECRET);
     res.json({ token, user });
   } catch (err) { res.status(400).send('Auth failed'); }
 });
 
-// User preferences
 app.put('/api/user/open-files', authenticate, async (req: any, res) => {
   await User.findByIdAndUpdate(req.user.id, { openFileIds: req.body.fileIds });
   res.send('Updated');
@@ -138,14 +142,16 @@ app.get('/api/files', authenticate, async (req: any, res) => {
 
 app.get('/api/shared-files', authenticate, async (req: any, res) => {
   const files = await File.find({ 
-    'sharedWith.email': req.user.email,
+    $or: [
+      { 'sharedWith.email': req.user.email },
+      { 'sharedWith.email': 'everyone' }
+    ],
     owner: { $ne: req.user.id } 
   }).populate('owner', 'name email').sort({ lastModified: -1 });
   res.json(files);
 });
 
 app.post('/api/files', authenticate, async (req: any, res) => {
-  // Ensure parent folders exist for bulk upload
   if (req.body.path && req.body.path !== '/') {
     const parts = req.body.path.split('/').filter(Boolean);
     let currentCheckPath = '/';
@@ -182,7 +188,7 @@ app.put('/api/files/:id', authenticate, async (req: any, res) => {
   if (!file) return res.status(404).send('Not found');
   
   const isOwner = file.owner.toString() === req.user.id;
-  const isSharedWrite = file.sharedWith.some(s => s.email === req.user.email && s.permission === 'write');
+  const isSharedWrite = file.sharedWith.some(s => (s.email === req.user.email || s.email === 'everyone') && s.permission === 'write');
   
   if (!isOwner && !isSharedWrite && !req.user.isAdmin) return res.status(403).send('No write access');
   
@@ -227,29 +233,44 @@ app.post('/api/admin/users/:id/toggle-admin', authenticate, adminOnly, async (re
 
 // Persistent R Execution
 app.post('/api/execute', authenticate, async (req: any, res) => {
-  const { code } = req.body;
+  const { code, currentPath } = req.body;
   const userId = req.user.id;
   const session = getRSession(userId);
   const plotPath = `/tmp/plot_${userId}.png`;
+  const workDir = `/tmp/r_work_${userId}`;
 
-  session.output = ''; // Reset output for this specific run
+  // 1. Prepare working directory with user's files
+  if (!fs.existsSync(workDir)) fs.mkdirSync(workDir);
+  // Clear workDir first? Maybe not, just overwrite.
+  const pathFiles = await File.find({ owner: userId, path: currentPath, isFolder: false });
+  for (const f of pathFiles) {
+    fs.writeFileSync(path.join(workDir, f.name), f.draftContent || f.content || '');
+  }
+
+  session.output = ''; 
 
   const sentinel = `SENTINEL_DONE_${Date.now()}`;
-  
-  // We use source() from a temporary file to minimize echoing of the wrapper code itself
   const scriptPath = `/tmp/script_${userId}.R`;
+  
   const wrappedCode = `
+    setwd("${workDir}")
+    options(warn=-1)
+    suppressMessages(library(jsonlite, quietly=TRUE))
+    
+    # Run user code
     tryCatch({
       ${code}
     }, error = function(e) { cat("ERROR:", e$message, "\\n") })
+    
+    # Cleanup and capture
     if (dev.cur() > 1) dev.off()
     cat("${sentinel}\\n")
     
     # Silently capture variables
-    suppressMessages(library(jsonlite, quietly=TRUE))
     var_list <- list()
-    for (v in ls()) {
-      if (v == "var_list") next
+    all_objs <- ls(all.names=TRUE)
+    for (v in all_objs) {
+      if (v == "var_list" || v == "all_objs") next
       val <- get(v)
       if (is.vector(val) || is.matrix(val) || is.data.frame(val)) {
         var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
@@ -259,7 +280,8 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
   `;
 
   fs.writeFileSync(scriptPath, wrappedCode);
-  session.process.stdin.write(`source("${scriptPath}")\n`);
+  // Using source with echo=FALSE to minimize noise
+  session.process.stdin.write(`source("${scriptPath}", echo=FALSE, verbose=FALSE, print.eval=TRUE)\n`);
 
   let checkCount = 0;
   const waitForDone = setInterval(() => {
@@ -268,10 +290,16 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
       clearInterval(waitForDone);
       
       let finalOutput = session.output;
-      // Remove echoed lines and sentinel
+      // Remove wrapper noise
       finalOutput = finalOutput.split(sentinel)[0];
-      finalOutput = finalOutput.replace(new RegExp(`source\\("${scriptPath}"\\)`, 'g'), '');
-      // Remove leading/trailing prompts and whitespace
+      finalOutput = finalOutput.replace(new RegExp(`source\\("${scriptPath}".*\\)`, 'g'), '');
+      
+      // Intensive filtering of the wrapper lines the user saw
+      finalOutput = finalOutput.replace(/ryCatch\(\{/g, '');
+      finalOutput = finalOutput.replace(/if \(dev\.cur\(\) > 1\) dev\.off\(\)/g, '');
+      finalOutput = finalOutput.replace(/cat\("SENTINEL_DONE_.*\n/g, '');
+      
+      // Clean up prompts and empty lines
       finalOutput = finalOutput.replace(/^> /gm, '').replace(/^\+ /gm, '').trim();
 
       const varFile = `/tmp/vars_${userId}.json`;
@@ -292,7 +320,7 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
         const cleanStdout = finalOutput.replace(/null device\s*\n\s*1\s*/g, '').trim();
         res.json({ stdout: cleanStdout, plot: plotBase64, variables });
         if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-      }, 50);
+      }, 100);
     }
   }, 100);
 });
