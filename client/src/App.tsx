@@ -351,7 +351,8 @@ function App() {
         }
         await axios.post('/api/files', { name: file.name, path: uploadPath, content, isFolder: false }, { headers: { Authorization: `Bearer ${token}` } });
         };
-        reader.readAsText(file);      }
+        reader.readAsText(file);
+      }
     };
     input.click();
   };
