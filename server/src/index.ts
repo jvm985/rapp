@@ -38,7 +38,7 @@ const User = mongoose.model('User', UserSchema);
 
 const FileSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  path: { type: String, default: '/' }, // For folder support
+  path: { type: String, default: '/' }, 
   isFolder: { type: Boolean, default: false },
   content: { type: String, default: '' },
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
@@ -66,8 +66,6 @@ const adminOnly = (req: any, res: any, next: any) => {
   if (!req.user.isAdmin) return res.status(403).send('Admin only');
   next();
 };
-
-// --- Routes ---
 
 // Auth
 app.post('/api/auth/mock', async (req, res) => {
@@ -123,7 +121,6 @@ app.put('/api/files/:id', authenticate, async (req: any, res) => {
 app.delete('/api/files/:id', authenticate, async (req: any, res) => {
   const file = await File.findById(req.params.id);
   if (!file || (file.owner.toString() !== req.user.id && !req.user.isAdmin)) return res.status(403).send('Forbidden');
-  // If folder, delete sub-items? For now just the item.
   await file.deleteOne();
   res.send('Deleted');
 });

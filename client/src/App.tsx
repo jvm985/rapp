@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 import Editor from '@monaco-editor/react';
-import { Play, Save, FileText, Layout, LogOut, Plus, Trash2, UserCog, X, FolderPlus, Folder, Database } from 'lucide-react';
+import { Play, Save, FileText, Layout, LogOut, Plus, Trash2, UserCog, X, FolderPlus, Folder, Database, ChevronRight, Home } from 'lucide-react';
 import io from 'socket.io-client';
 import axios from 'axios';
 
@@ -21,6 +21,7 @@ function App() {
   const [users, setUsers] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [rightTab, setRightTab] = useState<'files' | 'vars'>('files');
+  const [currentPath, setCurrentPath] = useState('/');
   
   // Custom Resize State
   const [leftWidth, setLeftWidth] = useState(65); 
@@ -28,6 +29,7 @@ function App() {
   const [fileManagerHeight, setFileManagerHeight] = useState(40);
 
   const editorRef = useRef<any>(null);
+  const consoleRef = useRef<HTMLDivElement>(null);
   const isResizingH = useRef(false);
   const isResizingV = useRef(false);
   const isResizingR = useRef(false);
@@ -46,6 +48,12 @@ function App() {
     socket.on('file-updated', handleUpdate);
     return () => { socket.off('file-updated'); };
   }, []);
+
+  useEffect(() => {
+    if (consoleRef.current) {
+      consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
+    }
+  }, [output]);
 
   const fetchFiles = async () => {
     try {
@@ -68,13 +76,16 @@ function App() {
   const createFile = async (isFolder = false) => {
     const name = prompt(isFolder ? 'Map naam:' : 'Bestandsnaam:');
     if (!name) return;
-    const res = await axios.post('/api/files', { name, isFolder }, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await axios.post('/api/files', { name, isFolder, path: currentPath }, { headers: { Authorization: `Bearer ${token}` } });
     fetchFiles();
     if (!isFolder) openFile(res.data);
   };
 
   const openFile = (file: any) => {
-    if (file.isFolder) return;
+    if (file.isFolder) {
+      setCurrentPath(currentPath === '/' ? `/${file.name}/` : `${currentPath}${file.name}/`);
+      return;
+    }
     if (!openFiles.find(f => f._id === file._id)) {
       setOpenFiles([...openFiles, { ...file, content: file.content || '' }]);
     }
@@ -101,14 +112,28 @@ function App() {
     if (!editorRef.current) return;
     const selection = editorRef.current.getSelection();
     let codeToRun = '';
+    let shouldMoveCursor = false;
+
     if (selection && !selection.isEmpty()) {
       codeToRun = editorRef.current.getModel().getValueInRange(selection);
     } else {
       const position = editorRef.current.getPosition();
       codeToRun = editorRef.current.getModel().getLineContent(position.lineNumber);
+      shouldMoveCursor = true;
     }
+
     if (!codeToRun.trim()) return;
-    setOutput(prev => prev + '\n> ' + codeToRun + '\n');
+
+    setOutput(prev => prev + '> ' + codeToRun + '\n');
+    
+    // Move cursor to next line if it was a single line run
+    if (shouldMoveCursor) {
+      const position = editorRef.current.getPosition();
+      editorRef.current.setPosition({ lineNumber: position.lineNumber + 1, column: 1 });
+      editorRef.current.revealLine(position.lineNumber + 1);
+      editorRef.current.focus();
+    }
+
     try {
       const res = await axios.post('/api/execute', { code: codeToRun }, { headers: { Authorization: `Bearer ${token}` } });
       setOutput(prev => prev + (res.data.stdout || res.data.stderr || res.data.error || '') + '\n');
@@ -163,6 +188,9 @@ function App() {
     );
   }
 
+  const breadcrumbs = currentPath.split('/').filter(Boolean);
+  const filteredFiles = files.filter(f => f.path === currentPath);
+
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#1e1e1e', color: 'white' }}>
       <header style={{ height: '45px', background: '#2d2d2d', display: 'flex', alignItems: 'center', padding: '0 15px', borderBottom: '1px solid #333' }}>
@@ -180,7 +208,7 @@ function App() {
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Left Column */}
-        <div style={{ width: `${leftWidth}%`, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ width: `${leftWidth}%`, display: 'flex', flexDirection: 'column', borderRight: '4px solid #111' }}>
           <div style={{ height: `${editorHeight}%`, display: 'flex', flexDirection: 'column' }}>
             <div style={{ height: '35px', background: '#252526', display: 'flex', overflowX: 'auto', borderBottom: '1px solid #111' }}>
               {openFiles.map(f => (
@@ -199,36 +227,54 @@ function App() {
               )}
             </div>
           </div>
-          <div onMouseDown={() => isResizingH.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize' }} />
-          <div style={{ flex: 1, background: '#000', padding: '10px', overflowY: 'auto', textAlign: 'left' }}>
+          <div onMouseDown={() => isResizingH.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize', zIndex: 10 }} />
+          <div ref={consoleRef} style={{ flex: 1, background: '#000', padding: '10px', overflowY: 'auto', textAlign: 'left' }}>
             <div style={{ fontSize: '10px', color: '#444', fontWeight: 'bold', marginBottom: '5px' }}>R CONSOLE</div>
             <pre style={{ margin: 0, color: '#2ecc71', fontSize: '13px', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{output}</pre>
           </div>
         </div>
 
-        <div onMouseDown={() => isResizingV.current = true} style={{ width: '4px', background: '#111', cursor: 'col-resize' }} />
+        <div onMouseDown={() => isResizingV.current = true} style={{ width: '4px', background: '#111', cursor: 'col-resize', zIndex: 10 }} />
 
         {/* Right Column */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           <div style={{ height: `${fileManagerHeight}%`, background: '#252526', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '8px 12px', background: '#2d2d2d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#888' }}>FILE MANAGER</span>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <FolderPlus size={14} onClick={() => createFile(true)} style={{ cursor: 'pointer' }} />
-                <Plus size={16} onClick={() => createFile(false)} style={{ cursor: 'pointer' }} />
+            <div style={{ padding: '8px 12px', background: '#2d2d2d', borderBottom: '1px solid #111' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#888' }}>FILE MANAGER</span>
+                <div style={{ display: 'flex', gap: '10px', color: '#888' }}>
+                  <FolderPlus size={14} onClick={() => createFile(true)} style={{ cursor: 'pointer' }} />
+                  <Plus size={16} onClick={() => createFile(false)} style={{ cursor: 'pointer' }} />
+                </div>
+              </div>
+              {/* Breadcrumbs */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#3498db', overflowX: 'auto' }}>
+                <Home size={12} onClick={() => setCurrentPath('/')} style={{ cursor: 'pointer' }} />
+                {breadcrumbs.map((b, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <ChevronRight size={10} color="#444" />
+                    <span 
+                      onClick={() => setCurrentPath('/' + breadcrumbs.slice(0, i + 1).join('/') + '/')} 
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {b}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '5px' }}>
-              {files.map(f => (
+              {filteredFiles.length === 0 && <div style={{ textAlign: 'center', padding: '20px', color: '#444', fontSize: '12px' }}>Map is leeg.</div>}
+              {filteredFiles.map(f => (
                 <div key={f._id} onClick={() => openFile(f)} style={{ padding: '6px 10px', fontSize: '13px', cursor: 'pointer', background: activeFileId === f._id ? '#37373d' : 'transparent', display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '4px' }}>
                   {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color="#3498db"/>}
-                  <span style={{ flex: 1 }}>{f.name}</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
                   <Trash2 size={12} onClick={(e) => { e.stopPropagation(); axios.delete(`/api/files/${f._id}`, { headers: { Authorization: `Bearer ${token}` } }).then(fetchFiles); }} style={{ color: '#444' }}/>
                 </div>
               ))}
             </div>
           </div>
-          <div onMouseDown={() => isResizingR.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize' }} />
+          <div onMouseDown={() => isResizingR.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize', zIndex: 10 }} />
           <div style={{ flex: 1, background: '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ display: 'flex', background: '#f8f9fa', borderBottom: '1px solid #ddd' }}>
               <button onClick={() => setRightTab('files')} style={{ flex: 1, padding: '8px', border: 'none', background: rightTab === 'files' ? 'white' : 'transparent', fontSize: '11px', fontWeight: 'bold', borderBottom: rightTab === 'files' ? '2px solid #3498db' : 'none', cursor: 'pointer', color: '#333' }}>PLOT</button>

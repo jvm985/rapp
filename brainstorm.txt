@@ -1,3 +1,10 @@
+algemene principes
+------------------
+- altijd front en backend testen als je iets verandert: maak een https verbinding met r.irishof.cloud en log in met test user. check dat alles normaal is, zonder errors.  Indien er fouten zijn: code wijzigen en opnieuw testen tot het werkt.
+- jij wijzigt enkel dingen die ik expliciet vraag, dus geen stukken van de app beginnen veranderen zonder dat ik erom gevraagd heb.
+- stel me ja/nee vragen als er belangrijke keuzes zijn; kies niet zomaar voor mij
+
+
 r app
 ------
 bouw iets soortgelijks als rstudio, plaats het in /home/joachim/develop/R
@@ -14,10 +21,13 @@ sommige users zijn beheerder, die moeten user beheer kunnen doen, en alle bestan
 joachim.vanmeirvenne@atheneumkapellen.be is beheerder
 maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 
+- indeling scherm: twee kolommen, twee rijen. linker kolom: boven r code (met tabs die aangeven in welk bestand je werkt), onder r output. rechter kolom : boven een file manager, onderaan visualisatie en variabelen (zoals het nu is)
+- de groottes van de vensters moeten aanpasbaar zijn
+- de output van R niet centreren
+- de filemanager moet ook met mappen om kunnen: dus als ik er op klik, moet je de inhoud van die map tonen. voorzie bovenaan een navigatie
+- dit werkt niet goed: welke r code uitvoeren: als code is geselecteerd, enkel de selectie. als niets is geselecteerd, enkel de lijn waar de cursor staat.
+
+
 verbeterpunten
 --------------
-- de groottes van de vensters moeten aanpasbaar zijn
-- welke r code uitvoeren: als code is geselecteerd, enkel de selectie. als niets is geselecteerd, enkel de lijn waar de cursor staat.
-- indeling scherm: twee kolommen, twee rijen. linker kolom: boven r code (met tabs die aangeven in welk bestand je werkt), onder r output. rechter kolom : boven een file manager, onderaan visualisatie en variabelen (zoals het nu is)
-- de filemanager moet ook met mappen om kunnen, plus alles wat hij nu al kan
-- de output van R niet centreren
+- installeer alle packages (toegankelijk voor iedereen) die je ziet op https://support.posit.co/hc/en-us/articles/201057987-Quick-list-of-useful-R-packages
