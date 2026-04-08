@@ -275,7 +275,18 @@ app.put('/api/files/:id', authenticate, async (req: any, res) => {
 app.delete('/api/files/:id', authenticate, async (req: any, res) => {
   const file = await File.findById(req.params.id);
   if (!file || (file.owner.toString() !== req.user.id && !req.user.isAdmin)) return res.status(403).send('Forbidden');
+  
   const ownerId = file.owner;
+  
+  if (file.isFolder) {
+    const fullPath = file.path + file.name + '/';
+    // Delete all descendants (recursive)
+    await File.deleteMany({ 
+      owner: ownerId, 
+      path: new RegExp('^' + fullPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) 
+    });
+  }
+  
   await file.deleteOne();
   io.emit('files-changed', { ownerId });
   res.send('Deleted');
