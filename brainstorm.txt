@@ -82,23 +82,6 @@ verbeterpunten
 
 - ruim console op: <4be.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
 - ik moet bestanden kunnen verplaatsen en kopieren naar andere mappen (met cut, copy, paste). dat werkt nog niet want als ik een bestand cut, kan ik het niet pasten in een map want knoppen daar niet actief
-- bij uploaden map die ik ervoor al eens had upgeload en verwijderd, verschijnen nu de bestanden dubbel, en de map zelf ook
-- bij variabelen: als ik klik op uitklappen, is er een error: 
-Uncaught TypeError: t.summary.split is not a function
-    children https://r.irishof.cloud/assets/index-0XCb4LNP.js:27
-    Vo https://r.irishof.cloud/assets/index-0XCb4LNP.js:27
-    Eo https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
-    hc https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
-    Mc https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
-    Mu https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
-    ku https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
-    Ou https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
-    gu https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
-    ld https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
-    id https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
-    od https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
-    ud https://r.irishof.cloud/assets/index-0XCb4LNP.js:8
-index-0XCb4LNP.js:27:16340
-
+- bij uploaden map verschijnent de map en de  bestanden dubbel
 - test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.
  

@@ -38,7 +38,7 @@ function App() {
   const [plotDialog, setPlotDialog] = useState<'delete' | 'download' | null>(null);
   const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
 
-  // Custom Resize State
+  // Custom Resize State (Internal use only for dragging)
   const [leftWidth, _setLeftWidth] = useState(65); 
   const [editorHeight, _setEditorHeight] = useState(70);
   const [fileManagerHeight, _setFileManagerHeight] = useState(40);
@@ -89,6 +89,7 @@ function App() {
 
   useEffect(() => {
     const handleUpdate = (data: any) => {
+      // Update draftContent if someone else edited
       setOpenFiles(prev => prev.map(f => f._id === data.fileId ? { ...f, draftContent: data.content } : f));
     };
     const handleFilesChanged = () => {
@@ -372,6 +373,16 @@ function App() {
     localStorage.setItem('token', data.token); localStorage.setItem('user', JSON.stringify(data.user));
   };
 
+  // Resize Handlers (Placeholder for internal state)
+  useEffect(() => {
+    const handleMouseMove = (_e: MouseEvent) => {
+      // Logic handled via refs if needed, but keeping state vars for compatibility
+    };
+    const handleMouseUp = () => { isResizingV.current = false; isResizingH.current = false; isResizingR.current = false; };
+    window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
+    return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
+  }, []);
+
   const breadcrumbs = currentPath.split('/').filter(Boolean);
   const currentFilesList = sidebarTab === 'my' 
     ? files.filter(f => f.path === currentPath) 
@@ -391,6 +402,18 @@ function App() {
     setExpandedVars(next);
   };
 
+  const hasWriteAccessToCurrentFolder = () => {
+    if (sidebarTab === 'my') return true;
+    if (currentPath === '/') return false;
+    const parts = currentPath.split('/').filter(Boolean);
+    const folderName = parts[parts.length - 1];
+    const parentPath = '/' + parts.slice(0, -1).join('/') + (parts.length > 1 ? '/' : '');
+    const folder = sharedFiles.find(f => f.isFolder && f.name === folderName && f.path === parentPath);
+    return folder?.sharedWith?.some((s: any) => (s.email === user.email || s.email === 'everyone') && s.permission === 'write') || user.isAdmin;
+  };
+
+  const canPaste = clipboard && (sidebarTab === 'my' || hasWriteAccessToCurrentFolder());
+
   if (!user) {
     return (
       <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5' }}>
@@ -409,18 +432,6 @@ function App() {
       </div>
     );
   }
-
-  const hasWriteAccessToCurrentFolder = () => {
-    if (sidebarTab === 'my') return true;
-    if (currentPath === '/') return false;
-    const parts = currentPath.split('/').filter(Boolean);
-    const folderName = parts[parts.length - 1];
-    const parentPath = '/' + parts.slice(0, -1).join('/') + (parts.length > 1 ? '/' : '');
-    const folder = sharedFiles.find(f => f.isFolder && f.name === folderName && f.path === parentPath);
-    return folder?.sharedWith?.some((s: any) => (s.email === user.email || s.email === 'everyone') && s.permission === 'write') || user.isAdmin;
-  };
-
-  const canPaste = clipboard && (sidebarTab === 'my' || hasWriteAccessToCurrentFolder());
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#1e1e1e', color: 'white' }}>

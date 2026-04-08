@@ -142,6 +142,7 @@ app.get('/api/files', authenticate, async (req: any, res) => {
 });
 
 app.get('/api/shared-files', authenticate, async (req: any, res) => {
+  // Find all folders shared with this user
   const sharedFolders = await File.find({
     isFolder: true,
     $or: [
@@ -185,23 +186,26 @@ app.post('/api/files', authenticate, async (req: any, res) => {
     let currentCheckPath = '/';
     for (const part of parts) {
       const folderName = part;
-      const folderExists = await File.findOne({ owner: req.user.id, name: folderName, path: currentCheckPath, isFolder: true });
-      if (!folderExists) {
-        await File.create({ name: folderName, isFolder: true, path: currentCheckPath, owner: req.user.id });
+      // Check for existing folder to avoid duplicates
+      let folder = await File.findOne({ owner: req.user.id, name: folderName, path: currentCheckPath, isFolder: true });
+      if (!folder) {
+        folder = await File.create({ name: folderName, isFolder: true, path: currentCheckPath, owner: req.user.id });
       }
       currentCheckPath += folderName + '/';
     }
   }
   
   // Avoid duplicates for files
-  if (!req.body.isFolder) {
-    const existing = await File.findOne({ owner: req.user.id, name: req.body.name, path: req.body.path, isFolder: false });
-    if (existing) {
-      Object.assign(existing, req.body);
+  const existing = await File.findOne({ owner: req.user.id, name: req.body.name, path: req.body.path, isFolder: req.body.isFolder });
+  if (existing) {
+    if (!req.body.isFolder) {
+      existing.content = req.body.content || existing.content;
+      existing.draftContent = req.body.draftContent || existing.draftContent;
+      existing.size = req.body.size || existing.size;
       await existing.save();
-      io.emit('files-changed', { ownerId: req.user.id });
-      return res.json(existing);
     }
+    io.emit('files-changed', { ownerId: req.user.id });
+    return res.json(existing);
   }
 
   const file = await File.create({ ...req.body, owner: req.user.id });
@@ -310,6 +314,7 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
   session.output = ''; 
   const sentinel = `SENTINEL_DONE_${Date.now()}`;
   const scriptPath = `/tmp/script_${userId}.R`;
+  const scriptFileName = path.basename(scriptPath);
   
   const wrappedCode = `
     setwd("${workDir}")
@@ -344,7 +349,7 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
   let checkCount = 0;
   const waitForDone = setInterval(() => {
     checkCount++;
-    if (session.output.includes(sentinel) || checkCount > 200) {
+    if (session.output.includes(sentinel) || checkCount > 250) {
       clearInterval(waitForDone);
       
       let finalOutput = session.output.split(sentinel)[0];
@@ -352,7 +357,7 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
       // Intensive filtering of wrapper code echoes
       const lines = finalOutput.split('\n').filter(l => {
         const trimmed = l.trim();
-        if (trimmed.includes(path.basename(scriptPath))) return false;
+        if (trimmed.includes(scriptFileName)) return false;
         if (trimmed.startsWith('> source(')) return false;
         if (trimmed.startsWith('> setwd(')) return false;
         if (trimmed.startsWith('> options(')) return false;
@@ -361,16 +366,12 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
         if (trimmed.startsWith('> while(dev.cur()')) return false;
         if (trimmed === '+') return false;
         if (trimmed.startsWith('+')) {
-           // Heuristic for wrapper continuation lines
            if (trimmed.includes('png(file = "/tmp/plot')) return false;
            if (trimmed.includes('_%03d.png"')) return false;
            if (trimmed.includes('dev.off()')) return false;
            if (trimmed.includes('cat("SENTINEL_DONE')) return false;
            if (trimmed.includes('}, error = function(e)')) return false;
-           if (trimmed.includes('})')) {
-              // Only hide if it follows a wrapper line
-              return false;
-           }
+           if (trimmed.includes('})')) return false;
         }
         return true;
       });
@@ -387,12 +388,12 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
 
         const plotFiles = fs.readdirSync('/tmp').filter(f => f.startsWith(`plot_${userId}_`)).sort();
         const plots = plotFiles.map(f => fs.readFileSync(path.join('/tmp', f)).toString('base64'));
-        plotFiles.forEach(f => fs.unlinkSync(path.join('/tmp', f)));
+        plotFiles.forEach(f => { try { fs.unlinkSync(path.join('/tmp', f)); } catch(e) {} });
 
         const cleanStdout = finalOutput.replace(/null device\s*\n\s*1\s*/g, '').trim();
         res.json({ stdout: cleanStdout, plots, variables });
         if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-      }, 400); // Wait longer for plots
+      }, 500); // Wait longer for plots
     }
   }, 100);
 });
