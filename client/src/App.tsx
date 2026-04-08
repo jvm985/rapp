@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 import Editor from '@monaco-editor/react';
-import { Play, Save, FileText, Layout, LogOut, Plus, Trash2, UserCog, X, FolderPlus, Folder, Database, ChevronRight, Home } from 'lucide-react';
+import { Play, Save, FileText, Layout, LogOut, Plus, Trash2, UserCog, X, FolderPlus, Folder, Database, ChevronRight, Home, Eraser } from 'lucide-react';
 import io from 'socket.io-client';
 import axios from 'axios';
 
@@ -111,14 +111,15 @@ function App() {
   const runCode = async () => {
     if (!editorRef.current) return;
     const selection = editorRef.current.getSelection();
+    const model = editorRef.current.getModel();
     let codeToRun = '';
     let shouldMoveCursor = false;
 
     if (selection && !selection.isEmpty()) {
-      codeToRun = editorRef.current.getModel().getValueInRange(selection);
+      codeToRun = model.getValueInRange(selection);
     } else {
       const position = editorRef.current.getPosition();
-      codeToRun = editorRef.current.getModel().getLineContent(position.lineNumber);
+      codeToRun = model.getLineContent(position.lineNumber);
       shouldMoveCursor = true;
     }
 
@@ -126,17 +127,22 @@ function App() {
 
     setOutput(prev => prev + '> ' + codeToRun + '\n');
     
-    // Move cursor to next line if it was a single line run
     if (shouldMoveCursor) {
       const position = editorRef.current.getPosition();
-      editorRef.current.setPosition({ lineNumber: position.lineNumber + 1, column: 1 });
-      editorRef.current.revealLine(position.lineNumber + 1);
+      const lineCount = model.getLineCount();
+      if (position.lineNumber < lineCount) {
+        editorRef.current.setPosition({ lineNumber: position.lineNumber + 1, column: 1 });
+        editorRef.current.revealLine(position.lineNumber + 1);
+      }
       editorRef.current.focus();
     }
 
     try {
       const res = await axios.post('/api/execute', { code: codeToRun }, { headers: { Authorization: `Bearer ${token}` } });
-      setOutput(prev => prev + (res.data.stdout || res.data.stderr || res.data.error || '') + '\n');
+      const newOutput = (res.data.stdout || res.data.stderr || res.data.error || '').trim();
+      if (newOutput) {
+        setOutput(prev => prev + newOutput + '\n');
+      }
       if (res.data.plot) setPlot(`data:image/png;base64,${res.data.plot}`);
       if (res.data.variables) setVariables(res.data.variables);
     } catch (err) { setOutput(prev => prev + 'Fout bij uitvoeren.\n'); }
@@ -228,8 +234,13 @@ function App() {
             </div>
           </div>
           <div onMouseDown={() => isResizingH.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize', zIndex: 10 }} />
-          <div ref={consoleRef} style={{ flex: 1, background: '#000', padding: '10px', overflowY: 'auto', textAlign: 'left' }}>
-            <div style={{ fontSize: '10px', color: '#444', fontWeight: 'bold', marginBottom: '5px' }}>R CONSOLE</div>
+          <div ref={consoleRef} style={{ flex: 1, background: '#000', padding: '10px', overflowY: 'auto', textAlign: 'left', position: 'relative' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+              <div style={{ fontSize: '10px', color: '#444', fontWeight: 'bold' }}>R CONSOLE</div>
+              <button onClick={() => setOutput('')} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px' }}>
+                <Eraser size={10} /> Wissen
+              </button>
+            </div>
             <pre style={{ margin: 0, color: '#2ecc71', fontSize: '13px', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{output}</pre>
           </div>
         </div>
@@ -243,22 +254,16 @@ function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
                 <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#888' }}>FILE MANAGER</span>
                 <div style={{ display: 'flex', gap: '10px', color: '#888' }}>
-                  <FolderPlus size={14} onClick={() => createFile(true)} style={{ cursor: 'pointer' }} />
-                  <Plus size={16} onClick={() => createFile(false)} style={{ cursor: 'pointer' }} />
+                  <div style={{ cursor: 'pointer' }} onClick={() => createFile(true)}><FolderPlus size={14} /></div>
+                  <div style={{ cursor: 'pointer' }} onClick={() => createFile(false)}><Plus size={16} /></div>
                 </div>
               </div>
-              {/* Breadcrumbs */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#3498db', overflowX: 'auto' }}>
                 <Home size={12} onClick={() => setCurrentPath('/')} style={{ cursor: 'pointer' }} />
                 {breadcrumbs.map((b, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <ChevronRight size={10} color="#444" />
-                    <span 
-                      onClick={() => setCurrentPath('/' + breadcrumbs.slice(0, i + 1).join('/') + '/')} 
-                      style={{ cursor: 'pointer' }}
-                    >
-                      {b}
-                    </span>
+                    <span onClick={() => setCurrentPath('/' + breadcrumbs.slice(0, i + 1).join('/') + '/')} style={{ cursor: 'pointer' }}>{b}</span>
                   </div>
                 ))}
               </div>
@@ -269,7 +274,7 @@ function App() {
                 <div key={f._id} onClick={() => openFile(f)} style={{ padding: '6px 10px', fontSize: '13px', cursor: 'pointer', background: activeFileId === f._id ? '#37373d' : 'transparent', display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '4px' }}>
                   {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color="#3498db"/>}
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
-                  <Trash2 size={12} onClick={(e) => { e.stopPropagation(); axios.delete(`/api/files/${f._id}`, { headers: { Authorization: `Bearer ${token}` } }).then(fetchFiles); }} style={{ color: '#444' }}/>
+                  <Trash2 size={12} onClick={(e) => { e.stopPropagation(); if (confirm('Verwijderen?')) axios.delete(`/api/files/${f._id}`, { headers: { Authorization: `Bearer ${token}` } }).then(fetchFiles); }} style={{ color: '#444' }}/>
                 </div>
               ))}
             </div>

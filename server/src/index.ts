@@ -163,6 +163,10 @@ app.post('/api/execute', authenticate, (req, res) => {
   fs.writeFileSync(tempFile, wrappedCode);
   exec(`Rscript ${tempFile}`, (error, stdout, stderr) => {
     if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+    
+    // Clean up output (remove null device 1)
+    const cleanStdout = stdout.replace(/null device\s*\n\s*1\s*\n/g, '').replace(/null device\s*\n\s*1\s*$/g, '');
+
     let plotBase64 = null;
     if (fs.existsSync(plotFile)) {
       if (fs.statSync(plotFile).size > 5000) plotBase64 = fs.readFileSync(plotFile).toString('base64');
@@ -173,7 +177,7 @@ app.post('/api/execute', authenticate, (req, res) => {
       try { variables = JSON.parse(fs.readFileSync(varFile, 'utf8')); } catch (e) {}
       fs.unlinkSync(varFile);
     }
-    res.json({ stdout, stderr, plot: plotBase64, variables, error: error?.message });
+    res.json({ stdout: cleanStdout, stderr, plot: plotBase64, variables, error: error?.message });
   });
 });
 

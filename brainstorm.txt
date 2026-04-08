@@ -31,3 +31,5 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 verbeterpunten
 --------------
 - installeer alle packages (toegankelijk voor iedereen) die je ziet op https://support.posit.co/hc/en-us/articles/201057987-Quick-list-of-useful-R-packages
+- voorzie een knop om output te wissen
+- de output van r is niet mooi: er komt altijd iets bij als null device en een 1: fix dat
