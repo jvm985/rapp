@@ -76,6 +76,7 @@ const getRSession = (userId: string) => {
     session.output += data.toString(); 
   });
   
+  // Use a unique pattern for each session to avoid collision
   rProcess.stdin.write(`options(device = function(...) { 
     png(file = "/tmp/plot_${userId}_%03d.png", width = 800, height = 600)
   })\n`);
@@ -141,6 +142,7 @@ app.get('/api/files', authenticate, async (req: any, res) => {
 });
 
 app.get('/api/shared-files', authenticate, async (req: any, res) => {
+  // Find all folders shared with this user
   const sharedFolders = await File.find({
     isFolder: true,
     $or: [
@@ -334,22 +336,25 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
       
       let finalOutput = session.output.split(sentinel)[0];
       
-      // Cleanup all wrapper code echoes - very aggressive
-      const scriptFileName = path.basename(scriptPath);
+      // Cleanup all wrapper code echoes
       const lines = finalOutput.split('\n').filter(l => {
         const trimmed = l.trim();
-        if (trimmed.includes(scriptFileName)) return false;
-        if (trimmed.startsWith('> source("')) return false;
-        if (trimmed.startsWith('> setwd("')) return false;
-        if (trimmed.startsWith('> options(')) return false;
-        if (trimmed.startsWith('> tryCatch({')) return false;
-        if (trimmed.startsWith('> while(dev.cur()')) return false;
+        // Hide source lines
+        if (trimmed.includes(`source("${scriptPath}"`)) return false;
+        // Hide wrapper code lines based on known patterns
+        if (trimmed.includes('ryCatch({')) return false;
+        if (trimmed.includes('setwd(')) return false;
+        if (trimmed.includes('options(')) return false;
+        if (trimmed.includes('suppressMessages(library(')) return false;
+        if (trimmed.includes('while(dev.cur()')) return false;
+        if (trimmed.includes('cat("SENTINEL_DONE')) return false;
+        if (trimmed.includes('png(file = "/tmp/plot')) return false;
+        if (trimmed.includes('}, error = function(e)')) return false;
+        if (trimmed === '+') return false;
         if (trimmed.startsWith('+')) {
-           if (trimmed.includes('}, error = function(e)')) return false;
-           if (trimmed.includes('if (dev.cur()')) return false;
-           if (trimmed.includes('cat("SENTINEL_DONE')) return false;
-           if (trimmed.includes('png(file = "/tmp/plot')) return false;
-           if (trimmed === '+') return false; // empty continuations
+           // Heuristic for wrapper continuation lines
+           if (trimmed.includes('_%03d.png"')) return false;
+           if (trimmed.includes('dev.off()')) return false;
         }
         return true;
       });
@@ -371,19 +376,17 @@ app.post('/api/execute', authenticate, async (req: any, res) => {
         const cleanStdout = finalOutput.replace(/null device\s*\n\s*1\s*/g, '').trim();
         res.json({ stdout: cleanStdout, plots, variables });
         if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
-      }, 300); // More time for R to flush plots
+      }, 350); // Increased wait for plot flush
     }
   }, 100);
 });
 
 io.on('connection', (socket) => {
-  socket.on('join-file', (fileId) => socket.join(fileRoom(fileId)));
+  socket.on('join-file', (fileId) => socket.join(`file_${fileId}`));
   socket.on('edit-file', (data) => {
-    socket.to(fileRoom(data.fileId)).emit('file-updated', data);
+    socket.to(`file_${data.fileId}`).emit('file-updated', data);
   });
 });
-
-function fileRoom(id: string) { return `file_${id}`; }
 
 const PORT = process.env.PORT || 3001;
 httpServer.listen(PORT, () => console.log(`Server running on port ${PORT}`));

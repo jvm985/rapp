@@ -66,19 +66,25 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 - wanneer ik een bestand deel als alleen lezen, kunnen de anderen er toch in werken. je moet het bewerken uitschakelen in de editor.
 - verwijderknop plots: laat user kiezen enkel huidige plot verwijderen, of allemaal. zelfde voor download knop. het dialoogvenster moet drie knoppen bevatten alle, enkel huidige en annuleren. 
 
-
-verbeterpunten
---------------
-
-
 - maak verwijder en download schermen voor plots professioneler
 - geddelde bestanden of mappen mag je nooit kunnen verwijderen, tenzij ze van jezelf zijn. schakel daarom alle knoppen uit in filemanager, wanneer je bij gedeelde bestanden zit
 - filemanager: geef aan dat ik een bestand heb gedeeld. wanneer ik bij een gedeeld bestand op delen klik, moet ik de huidige "deel status" zien, en die dan kunnen aanpassen. wanneer ik iets verander (bv van lezen naar schrijven) moet dat onmiddellijk bij alle gebruikers ziichtbaar worden
 - maak het dialoogscherm voor delen beter en mooier en professioneler. zorg ook dat ik met verschillende emailadressen kan delen
+
+verbeterpunten
+--------------
+
+- filemanager: bij gedeelde bestanden, toon wie de eigenaar is, maar beperk de lengte van het emailadres, zodat de tabel ordelijk blijft, en toon niet vanaf @
 - plots verschijnen niet allemaal wanneer ik een reeks R commando's uitvoer: enkel de laatste
-- in console verschijnt dit nog: <d16.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
-- in console verschijnt dit nog: <4be.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
+- ruim console op: <d16.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
+
+- ruim console op: + 
+<5021a159f62dd_%03d.png", width = 800, height = 600)
++   })
+
+<2dd.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
 
 - ik moet bestanden kunnen verplaatsen en kopieren naar andere mappen (met cut, copy, paste)
+- variabelen: toon de waarden links uitgelijnd. zorg voor in- en uitklappijltjes. beperk het aantal lijnen data tot 5.
 - test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.
  

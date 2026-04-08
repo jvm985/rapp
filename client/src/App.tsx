@@ -5,7 +5,7 @@ import {
   Play, Save, FileText, Layout, LogOut, Plus, Trash2, UserCog, X, 
   FolderPlus, Folder, Database, ChevronRight, Home, Eraser, 
   Download, Copy, Scissors, Clipboard, Share2, Edit3, ChevronLeft,
-  Upload, MoreHorizontal, RefreshCw, Users, Trash
+  Upload, MoreHorizontal, RefreshCw, ChevronDown, Trash, Users as UsersIcon
 } from 'lucide-react';
 import io from 'socket.io-client';
 import axios from 'axios';
@@ -36,6 +36,7 @@ function App() {
   const [activeDropdown, setActiveDropdown] = useState<'upload' | 'more' | null>(null);
   const [showShareModal, setShowShareModal] = useState<any>(null);
   const [plotDialog, setPlotDialog] = useState<'delete' | 'download' | null>(null);
+  const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
 
   // Custom Resize State
   const [leftWidth, setLeftWidth] = useState(65); 
@@ -88,7 +89,6 @@ function App() {
 
   useEffect(() => {
     const handleUpdate = (data: any) => {
-      // Update draftContent if someone else edited
       setOpenFiles(prev => prev.map(f => f._id === data.fileId ? { ...f, draftContent: data.content } : f));
     };
     const handleFilesChanged = () => {
@@ -366,6 +366,12 @@ function App() {
     });
   };
 
+  const handleLoginSuccess = async (res: any) => {
+    const { data } = await axios.post('/api/auth/google', { credential: res.credential });
+    setUser(data.user); setToken(data.token);
+    localStorage.setItem('token', data.token); localStorage.setItem('user', JSON.stringify(data.user));
+  };
+
   // Resize Handlers
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -384,16 +390,24 @@ function App() {
     return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
   }, []);
 
-  const handleLoginSuccess = async (res: any) => {
-    const { data } = await axios.post('/api/auth/google', { credential: res.credential });
-    setUser(data.user); setToken(data.token);
-    localStorage.setItem('token', data.token); localStorage.setItem('user', JSON.stringify(data.user));
-  };
-
   const breadcrumbs = currentPath.split('/').filter(Boolean);
   const currentFilesList = sidebarTab === 'my' 
     ? files.filter(f => f.path === currentPath) 
     : sharedFiles.filter(f => f.path === currentPath);
+
+  const getOwnerDisplay = (owner: any) => {
+    if (!owner) return '';
+    const email = owner.email || '';
+    const name = owner.name || email.split('@')[0];
+    const shortEmail = email.split('@')[0];
+    return name.length > 15 ? shortEmail.substring(0, 15) : name;
+  };
+
+  const toggleVar = (name: string) => {
+    const next = new Set(expandedVars);
+    if (next.has(name)) next.delete(name); else next.add(name);
+    setExpandedVars(next);
+  };
 
   if (!user) {
     return (
@@ -430,6 +444,7 @@ function App() {
       </header>
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        {/* Left Column */}
         <div style={{ width: `${leftWidth}%`, display: 'flex', flexDirection: 'column', borderRight: '4px solid #111' }}>
           <div style={{ height: `${editorHeight}%`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ height: '35px', background: '#252526', display: 'flex', overflowX: 'auto', borderBottom: '1px solid #111', flexShrink: 0 }}>
@@ -479,6 +494,7 @@ function App() {
 
         <div onMouseDown={() => isResizingV.current = true} style={{ width: '4px', background: '#111', cursor: 'col-resize', zIndex: 10, flexShrink: 0 }} />
 
+        {/* Right Column */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ height: `${fileManagerHeight}%`, background: '#252526', display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
             <div style={{ background: '#f8f9fa', color: '#333', padding: '4px 8px', display: 'flex', gap: '10px', borderBottom: '1px solid #ddd', alignItems: 'center', fontSize: '11px', flexShrink: 0 }}>
@@ -538,6 +554,7 @@ function App() {
                     <th style={{ width: '30px', padding: '5px' }}><input type="checkbox" onChange={(e) => setSelectedFileIds(e.target.checked ? new Set(currentFilesList.map(f => f._id)) : new Set())} checked={selectedFileIds.size > 0 && selectedFileIds.size === currentFilesList.length}/></th>
                     <th style={{ textAlign: 'left', padding: '5px' }}>Name</th>
                     <th style={{ textAlign: 'right', padding: '5px', width: '60px' }}>Size</th>
+                    {sidebarTab === 'shared' ? <th style={{ textAlign: 'left', padding: '5px', width: '80px' }}>Owner</th> : null}
                     <th style={{ textAlign: 'right', padding: '5px', width: '120px' }}>Modified</th>
                   </tr>
                 </thead>
@@ -549,10 +566,11 @@ function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color={f.owner?._id === user.id ? "#3498db" : "#f1c40f"}/>}
                           <span>{f.name}</span>
-                          {f.sharedWith && f.sharedWith.length > 0 && <Users size={10} color="#888" />}
+                          {f.sharedWith && f.sharedWith.length > 0 && <UsersIcon size={10} color="#888" />}
                         </div>
                       </td>
                       <td style={{ textAlign: 'right', padding: '5px', color: '#666' }}>{f.isFolder ? '' : (f.size > 1024 ? `${(f.size/1024).toFixed(1)} KB` : `${f.size} B`)}</td>
+                      {sidebarTab === 'shared' ? <td style={{ textAlign: 'left', padding: '5px', color: '#888', fontSize: '10px' }}>{getOwnerDisplay(f.owner)}</td> : null}
                       <td style={{ textAlign: 'right', padding: '5px', color: '#666', fontSize: '10px' }}>{new Date(f.lastModified).toLocaleString()}</td>
                     </tr>
                   ))}
@@ -587,11 +605,19 @@ function App() {
                   </div>
                 </div>
               ) : (
-                <div style={{ padding: '15px', color: '#333' }}>
+                <div style={{ padding: '15px', color: '#333', textAlign: 'left' }}>
                   {Object.entries(variables).map(([name, info]: [string, any]) => (
                     <div key={name} style={{ marginBottom: '10px', borderBottom: '1px solid #eee', paddingBottom: '8px' }}>
-                      <div style={{ fontWeight: 'bold', color: '#2980b9', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}><Database size={12}/>{name} <span style={{ fontWeight: 'normal', color: '#999', fontSize: '10px' }}>({info.type})</span></div>
-                      <pre style={{ margin: '4px 0 0 0', fontSize: '11px', background: '#f8f9fa', padding: '4px', whiteSpace: 'pre-wrap' }}>{info.summary}</pre>
+                      <div onClick={() => toggleVar(name)} style={{ fontWeight: 'bold', color: '#2980b9', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                        {expandedVars.has(name) ? <ChevronDown size={12}/> : <ChevronRight size={12}/>}
+                        <Database size={12}/>{name} <span style={{ fontWeight: 'normal', color: '#999', fontSize: '10px' }}>({info.type})</span>
+                      </div>
+                      {expandedVars.has(name) && (
+                        <pre style={{ margin: '4px 0 0 0', fontSize: '11px', background: '#f8f9fa', padding: '4px', whiteSpace: 'pre-wrap', borderLeft: '3px solid #3498db' }}>
+                          {info.summary.split('\n').slice(0, 5).join('\n')}
+                          {info.summary.split('\n').length > 5 ? '\n...' : ''}
+                        </pre>
+                      )}
                     </div>
                   ))}
                 </div>
