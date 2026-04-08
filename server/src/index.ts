@@ -38,6 +38,8 @@ const User = mongoose.model('User', UserSchema);
 
 const FileSchema = new mongoose.Schema({
   name: { type: String, required: true },
+  path: { type: String, default: '/' }, // For folder support
+  isFolder: { type: Boolean, default: false },
   content: { type: String, default: '' },
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sharedWith: [{
@@ -57,9 +59,7 @@ const authenticate = (req: any, res: any, next: any) => {
   try {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
-  } catch (err) {
-    res.status(401).send('Invalid token');
-  }
+  } catch (err) { res.status(401).send('Invalid token'); }
 };
 
 const adminOnly = (req: any, res: any, next: any) => {
@@ -74,11 +74,7 @@ app.post('/api/auth/mock', async (req, res) => {
   const { email } = req.body;
   let user = await User.findOne({ email });
   if (!user) {
-    user = await User.create({ 
-      email, 
-      name: email.split('@')[0], 
-      isAdmin: email === 'test@gemini.com' || email === 'joachim.vanmeirvenne@atheneumkapellen.be' 
-    });
+    user = await User.create({ email, name: email.split('@')[0], isAdmin: email === 'test@gemini.com' || email === 'joachim.vanmeirvenne@atheneumkapellen.be' });
   }
   const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, JWT_SECRET);
   res.json({ token, user });
@@ -93,12 +89,7 @@ app.post('/api/auth/google', async (req, res) => {
     if (!payload || !payload.email) throw new Error('No payload');
     let user = await User.findOne({ email: payload.email });
     if (!user) {
-      user = await User.create({
-        email: payload.email,
-        name: payload.name,
-        picture: payload.picture,
-        isAdmin: payload.email === 'joachim.vanmeirvenne@atheneumkapellen.be'
-      });
+      user = await User.create({ email: payload.email, name: payload.name, picture: payload.picture, isAdmin: payload.email === 'joachim.vanmeirvenne@atheneumkapellen.be' });
     }
     const token = jwt.sign({ id: user._id, email: user.email, isAdmin: user.isAdmin }, JWT_SECRET);
     res.json({ token, user });
@@ -107,30 +98,14 @@ app.post('/api/auth/google', async (req, res) => {
 
 // Files
 app.get('/api/files', authenticate, async (req: any, res) => {
-  let query: any = {
-    $or: [
-      { owner: req.user.id },
-      { 'sharedWith.email': req.user.email }
-    ]
-  };
-  // Admin can see all files
+  let query: any = { $or: [{ owner: req.user.id }, { 'sharedWith.email': req.user.email }] };
   if (req.user.isAdmin) query = {};
-  
-  const files = await File.find(query).populate('owner', 'name email').sort({ lastModified: -1 });
+  const files = await File.find(query).populate('owner', 'name email').sort({ isFolder: -1, name: 1 });
   res.json(files);
 });
 
-app.get('/api/files/:id', authenticate, async (req: any, res) => {
-  const file = await File.findById(req.params.id).populate('owner', 'name email');
-  if (!file) return res.status(404).send('Not found');
-  const isOwner = file.owner._id.toString() === req.user.id;
-  const isShared = file.sharedWith.some(s => s.email === req.user.email);
-  if (!isOwner && !isShared && !req.user.isAdmin) return res.status(403).send('No access');
-  res.json(file);
-});
-
 app.post('/api/files', authenticate, async (req: any, res) => {
-  const file = await File.create({ name: req.body.name, content: '', owner: req.user.id });
+  const file = await File.create({ ...req.body, owner: req.user.id });
   res.json(file);
 });
 
@@ -139,10 +114,7 @@ app.put('/api/files/:id', authenticate, async (req: any, res) => {
   if (!file) return res.status(404).send('Not found');
   const canWrite = file.owner.toString() === req.user.id || file.sharedWith.some(s => s.email === req.user.email && s.permission === 'write') || req.user.isAdmin;
   if (!canWrite) return res.status(403).send('No write access');
-  
-  file.content = req.body.content ?? file.content;
-  file.name = req.body.name ?? file.name;
-  file.sharedWith = req.body.sharedWith ?? file.sharedWith;
+  Object.assign(file, req.body);
   file.lastModified = new Date();
   await file.save();
   res.json(file);
@@ -151,11 +123,12 @@ app.put('/api/files/:id', authenticate, async (req: any, res) => {
 app.delete('/api/files/:id', authenticate, async (req: any, res) => {
   const file = await File.findById(req.params.id);
   if (!file || (file.owner.toString() !== req.user.id && !req.user.isAdmin)) return res.status(403).send('Forbidden');
+  // If folder, delete sub-items? For now just the item.
   await file.deleteOne();
   res.send('Deleted');
 });
 
-// Admin: User Management
+// Admin
 app.get('/api/admin/users', authenticate, adminOnly, async (req, res) => {
   const users = await User.find().sort({ email: 1 });
   res.json(users);
@@ -163,14 +136,11 @@ app.get('/api/admin/users', authenticate, adminOnly, async (req, res) => {
 
 app.post('/api/admin/users/:id/toggle-admin', authenticate, adminOnly, async (req, res) => {
   const user = await User.findById(req.params.id);
-  if (user) {
-    user.isAdmin = !user.isAdmin;
-    await user.save();
-  }
+  if (user) { user.isAdmin = !user.isAdmin; await user.save(); }
   res.send('Done');
 });
 
-// R Execution with Plot & Variable Support
+// R Execution
 app.post('/api/execute', authenticate, (req, res) => {
   const { code } = req.body;
   const id = Date.now();
@@ -178,62 +148,41 @@ app.post('/api/execute', authenticate, (req, res) => {
   const plotFile = path.join('/tmp', `plot_${id}.png`);
   const varFile = path.join('/tmp', `vars_${id}.json`);
   
-  // Wrap code to capture plots AND variables
   const wrappedCode = `
     library(jsonlite)
     png("${plotFile}", width=800, height=600)
-    tryCatch({
-      ${code}
-    }, error = function(e) {
-      cat("ERROR:", e$message, "\n")
-    })
+    tryCatch({ ${code} }, error = function(e) { cat("ERROR:", e$message, "\\n") })
     dev.off()
-    
-    # Capture variables
-    all_vars <- ls()
-    # Filter out internal or huge objects for the prototype
     var_list <- list()
-    for (v in all_vars) {
+    for (v in ls()) {
       val <- get(v)
       if (is.vector(val) || is.matrix(val) || is.data.frame(val)) {
-        var_list[[v]] <- list(
-          type = class(val)[1],
-          summary = paste(capture.output(str(val)), collapse="\\n")
-        )
+        var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
       }
     }
     write_json(var_list, "${varFile}")
   `;
   
   fs.writeFileSync(tempFile, wrappedCode);
-
   exec(`Rscript ${tempFile}`, (error, stdout, stderr) => {
     if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-    
     let plotBase64 = null;
     if (fs.existsSync(plotFile)) {
       if (fs.statSync(plotFile).size > 5000) plotBase64 = fs.readFileSync(plotFile).toString('base64');
       fs.unlinkSync(plotFile);
     }
-
     let variables = {};
     if (fs.existsSync(varFile)) {
-      try {
-        variables = JSON.parse(fs.readFileSync(varFile, 'utf8'));
-      } catch (e) {}
+      try { variables = JSON.parse(fs.readFileSync(varFile, 'utf8')); } catch (e) {}
       fs.unlinkSync(varFile);
     }
-    
     res.json({ stdout, stderr, plot: plotBase64, variables, error: error?.message });
   });
 });
 
-// Socket.io for Live Sync
 io.on('connection', (socket) => {
   socket.on('join-file', (fileId) => socket.join(fileId));
-  socket.on('edit-file', (data) => {
-    socket.to(data.fileId).emit('file-updated', data);
-  });
+  socket.on('edit-file', (data) => socket.to(data.fileId).emit('file-updated', data));
 });
 
 const PORT = process.env.PORT || 3001;

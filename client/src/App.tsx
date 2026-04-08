@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 import Editor from '@monaco-editor/react';
-import { Play, Save, FileText, Layout, LogOut, Plus, Share2, Trash2, UserCog, X, Upload, Database } from 'lucide-react';
+import { Play, Save, FileText, Layout, LogOut, Plus, Trash2, UserCog, X, FolderPlus, Folder, Database } from 'lucide-react';
 import io from 'socket.io-client';
 import axios from 'axios';
 
@@ -11,16 +11,26 @@ const socket = io(window.location.origin, { path: '/socket.io' });
 function App() {
   const [user, setUser] = useState<any>(JSON.parse(localStorage.getItem('user') || 'null'));
   const [token, setToken] = useState(localStorage.getItem('token'));
-  const [code, setCode] = useState('# Welkom!\n# Typ hier je R code\nx <- rnorm(100)\nplot(x, col="red")');
   const [output, setOutput] = useState('');
   const [plot, setPlot] = useState<string | null>(null);
   const [variables, setVariables] = useState<any>({});
   const [files, setFiles] = useState<any[]>([]);
+  const [openFiles, setOpenFiles] = useState<any[]>([]);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [showAdmin, setShowAdmin] = useState(false);
   const [users, setUsers] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [rightTab, setRightTab] = useState<'files' | 'vars'>('files');
+  
+  // Custom Resize State
+  const [leftWidth, setLeftWidth] = useState(65); 
+  const [editorHeight, setEditorHeight] = useState(70);
+  const [fileManagerHeight, setFileManagerHeight] = useState(40);
+
+  const editorRef = useRef<any>(null);
+  const isResizingH = useRef(false);
+  const isResizingV = useRef(false);
+  const isResizingR = useRef(false);
 
   useEffect(() => {
     if (token) {
@@ -30,28 +40,18 @@ function App() {
   }, [token]);
 
   useEffect(() => {
-    if (activeFileId) {
-      socket.emit('join-file', activeFileId);
-    }
     const handleUpdate = (data: any) => {
-      if (data.fileId === activeFileId && data.userEmail !== user.email) {
-        setCode(data.content);
-      }
+      setOpenFiles(prev => prev.map(f => f._id === data.fileId ? { ...f, content: data.content } : f));
     };
     socket.on('file-updated', handleUpdate);
     return () => { socket.off('file-updated'); };
-  }, [activeFileId]);
+  }, []);
 
   const fetchFiles = async () => {
     try {
       const res = await axios.get('/api/files', { headers: { Authorization: `Bearer ${token}` } });
       setFiles(res.data);
-    } catch (e) { 
-      console.error(e);
-      if (axios.isAxiosError(e) && e.response?.status === 401) {
-        handleLogout();
-      }
-    }
+    } catch (e) { console.error(e); }
   };
 
   const fetchUsers = async () => {
@@ -62,105 +62,93 @@ function App() {
   };
 
   const handleLogout = () => {
-    localStorage.clear();
-    setUser(null);
-    setToken(null);
-    setFiles([]);
-    window.location.reload();
+    localStorage.clear(); setUser(null); setToken(null); setFiles([]); window.location.reload();
   };
 
-  const createFile = async () => {
-    const name = prompt('Nieuwe bestandsnaam (bijv. analyse.R):');
+  const createFile = async (isFolder = false) => {
+    const name = prompt(isFolder ? 'Map naam:' : 'Bestandsnaam:');
     if (!name) return;
-    const res = await axios.post('/api/files', { name }, { headers: { Authorization: `Bearer ${token}` } });
+    const res = await axios.post('/api/files', { name, isFolder }, { headers: { Authorization: `Bearer ${token}` } });
     fetchFiles();
-    openFile(res.data);
-  };
-
-  const uploadFile = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.onchange = (e: any) => {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onload = async (res: any) => {
-        const content = res.target.result;
-        const apiRes = await axios.post('/api/files', { name: file.name }, { headers: { Authorization: `Bearer ${token}` } });
-        await axios.put(`/api/files/${apiRes.data._id}`, { content }, { headers: { Authorization: `Bearer ${token}` } });
-        fetchFiles();
-        openFile({ ...apiRes.data, content });
-      };
-      reader.readAsText(file);
-    };
-    input.click();
+    if (!isFolder) openFile(res.data);
   };
 
   const openFile = (file: any) => {
+    if (file.isFolder) return;
+    if (!openFiles.find(f => f._id === file._id)) {
+      setOpenFiles([...openFiles, { ...file, content: file.content || '' }]);
+    }
     setActiveFileId(file._id);
-    setCode(file.content || '');
-    setPlot(null);
-    setOutput(`Bestand '${file.name}' geopend.`);
   };
+
+  const closeFile = (e: any, id: string) => {
+    e.stopPropagation();
+    const nextFiles = openFiles.filter(f => f._id !== id);
+    setOpenFiles(nextFiles);
+    if (activeFileId === id) setActiveFileId(nextFiles.length > 0 ? nextFiles[nextFiles.length - 1]._id : null);
+  };
+
+  const activeFile = openFiles.find(f => f._id === activeFileId);
 
   const saveFile = async () => {
-    if (!activeFileId) return;
+    if (!activeFileId || !activeFile) return;
     setIsSaving(true);
-    await axios.put(`/api/files/${activeFileId}`, { content: code }, { headers: { Authorization: `Bearer ${token}` } });
-    setIsSaving(false);
-    fetchFiles();
-  };
-
-  const shareFile = async () => {
-    if (!activeFileId) return;
-    const email = prompt('Email van de gebruiker:');
-    if (!email) return;
-    const perm = confirm('Mag deze gebruiker schrijven?') ? 'write' : 'read';
-    const file = files.find(f => f._id === activeFileId);
-    const sharedWith = [...(file.sharedWith || []), { email, permission: perm }];
-    await axios.put(`/api/files/${activeFileId}`, { sharedWith }, { headers: { Authorization: `Bearer ${token}` } });
-    fetchFiles();
-    alert('Gedeeld!');
-  };
-
-  const deleteFile = async (id: string) => {
-    if (!confirm('Zeker weten?')) return;
-    await axios.delete(`/api/files/${id}`, { headers: { Authorization: `Bearer ${token}` } });
-    if (activeFileId === id) {
-      setActiveFileId(null);
-      setCode('');
-    }
-    fetchFiles();
+    await axios.put(`/api/files/${activeFileId}`, { content: activeFile.content }, { headers: { Authorization: `Bearer ${token}` } });
+    setIsSaving(false); fetchFiles();
   };
 
   const runCode = async () => {
-    setOutput('Bezig met uitvoeren...');
-    setPlot(null);
-    try {
-      const res = await axios.post('/api/execute', { code }, { headers: { Authorization: `Bearer ${token}` } });
-      setOutput(res.data.stdout || res.data.stderr || res.data.error || 'Klaar.');
-      if (res.data.plot) setPlot(`data:image/png;base64,${res.data.plot}`);
-      setVariables(res.data.variables || {});
-      setRightTab('vars');
-    } catch (err) {
-      setOutput('Fout bij uitvoeren van code.');
+    if (!editorRef.current) return;
+    const selection = editorRef.current.getSelection();
+    let codeToRun = '';
+    if (selection && !selection.isEmpty()) {
+      codeToRun = editorRef.current.getModel().getValueInRange(selection);
+    } else {
+      const position = editorRef.current.getPosition();
+      codeToRun = editorRef.current.getModel().getLineContent(position.lineNumber);
     }
+    if (!codeToRun.trim()) return;
+    setOutput(prev => prev + '\n> ' + codeToRun + '\n');
+    try {
+      const res = await axios.post('/api/execute', { code: codeToRun }, { headers: { Authorization: `Bearer ${token}` } });
+      setOutput(prev => prev + (res.data.stdout || res.data.stderr || res.data.error || '') + '\n');
+      if (res.data.plot) setPlot(`data:image/png;base64,${res.data.plot}`);
+      if (res.data.variables) setVariables(res.data.variables);
+    } catch (err) { setOutput(prev => prev + 'Fout bij uitvoeren.\n'); }
   };
+
+  const handleEditorChange = (value: any) => {
+    if (!activeFileId) return;
+    setOpenFiles(prev => prev.map(f => f._id === activeFileId ? { ...f, content: value } : f));
+    socket.emit('edit-file', { fileId: activeFileId, content: value, userEmail: user.email });
+  };
+
+  // Resize Handlers
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isResizingV.current) {
+        setLeftWidth((e.clientX / window.innerWidth) * 100);
+      } else if (isResizingH.current) {
+        setEditorHeight((e.clientY / window.innerHeight) * 100);
+      } else if (isResizingR.current) {
+        setFileManagerHeight((e.clientY / window.innerHeight) * 100);
+      }
+    };
+    const handleMouseUp = () => {
+      isResizingV.current = false; isResizingH.current = false; isResizingR.current = false;
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
 
   const handleLoginSuccess = async (res: any) => {
     const { data } = await axios.post('/api/auth/google', { credential: res.credential });
-    saveSession(data);
-  };
-
-  const handleMockLogin = async (email: string) => {
-    const { data } = await axios.post('/api/auth/mock', { email });
-    saveSession(data);
-  };
-
-  const saveSession = (data: any) => {
-    setUser(data.user);
-    setToken(data.token);
-    localStorage.setItem('token', data.token);
-    localStorage.setItem('user', JSON.stringify(data.user));
+    setUser(data.user); setToken(data.token);
+    localStorage.setItem('token', data.token); localStorage.setItem('user', JSON.stringify(data.user));
   };
 
   if (!user) {
@@ -168,10 +156,8 @@ function App() {
       <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5' }}>
         <div style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.1)', textAlign: 'center', width: '400px' }}>
           <h1>Irishof R Editor</h1>
-          <button onClick={() => handleMockLogin('test@gemini.com')} style={{ width: '100%', padding: '12px', background: '#4a5568', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', marginBottom: '15px', fontWeight: 'bold' }}>Login als test@gemini.com</button>
-          <div style={{ display: 'flex', justifyContent: 'center' }}>
-            <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}><GoogleLogin onSuccess={handleLoginSuccess} /></GoogleOAuthProvider>
-          </div>
+          <button onClick={() => { axios.post('/api/auth/mock', { email: 'test@gemini.com' }).then(r => { setUser(r.data.user); setToken(r.data.token); localStorage.setItem('token', r.data.token); localStorage.setItem('user', JSON.stringify(r.data.user)); }) }} style={{ width: '100%', padding: '12px', background: '#4a5568', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', marginBottom: '15px' }}>Login als test@gemini.com</button>
+          <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}><GoogleLogin onSuccess={handleLoginSuccess} /></GoogleOAuthProvider>
         </div>
       </div>
     );
@@ -179,82 +165,97 @@ function App() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#1e1e1e', color: 'white' }}>
-      <header style={{ height: '50px', background: '#2d2d2d', display: 'flex', alignItems: 'center', padding: '0 20px', borderBottom: '1px solid #333', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <span style={{ fontWeight: 'bold', color: '#3498db' }}>R Editor</span>
-          <button onClick={runCode} className="btn-run"><Play size={14}/> Run</button>
-          <button onClick={saveFile} className="btn-save"><Save size={14}/> {isSaving ? '...' : 'Save'}</button>
-          {activeFileId && <button onClick={shareFile} className="btn-share"><Share2 size={14}/> Share</button>}
+      <header style={{ height: '45px', background: '#2d2d2d', display: 'flex', alignItems: 'center', padding: '0 15px', borderBottom: '1px solid #333' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flex: 1 }}>
+          <span style={{ fontWeight: 'bold', color: '#3498db', fontSize: '14px' }}>R Editor</span>
+          <button onClick={runCode} className="btn-run"><Play size={12}/> Run</button>
+          <button onClick={saveFile} className="btn-save"><Save size={12}/> {isSaving ? '...' : 'Save'}</button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          {user.isAdmin && <button onClick={() => setShowAdmin(!showAdmin)} style={{ color: showAdmin ? '#3498db' : '#888', background: 'none', border: 'none', cursor: 'pointer' }} title="Beheer"><UserCog/></button>}
-          <span style={{ fontSize: '13px' }}>{user.name}</span>
-          <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} title="Uitloggen"><LogOut size={18}/></button>
+          {user.isAdmin && <button onClick={() => setShowAdmin(!showAdmin)} style={{ color: showAdmin ? '#3498db' : '#888', background: 'none', border: 'none', cursor: 'pointer' }}><UserCog size={18}/></button>}
+          <span style={{ fontSize: '12px' }}>{user.name}</span>
+          <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><LogOut size={16}/></button>
         </div>
       </header>
 
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <aside style={{ width: '250px', background: '#252526', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#2d2d2d' }}>
-            <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#888' }}>{user.isAdmin ? 'ALLE BESTANDEN' : 'MIJN BESTANDEN'}</span>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <div style={{ cursor: 'pointer' }} onClick={uploadFile} title="Uploaden"><Upload size={14} /></div>
-              <div style={{ cursor: 'pointer' }} onClick={createFile} title="Nieuw"><Plus size={16} /></div>
+        {/* Left Column */}
+        <div style={{ width: `${leftWidth}%`, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ height: `${editorHeight}%`, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ height: '35px', background: '#252526', display: 'flex', overflowX: 'auto', borderBottom: '1px solid #111' }}>
+              {openFiles.map(f => (
+                <div key={f._id} onClick={() => setActiveFileId(f._id)} style={{ padding: '0 15px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer', background: activeFileId === f._id ? '#1e1e1e' : '#2d2d2d', borderRight: '1px solid #111', minWidth: '120px' }}>
+                  <FileText size={12} color="#3498db"/>
+                  <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{f.name}</span>
+                  <X size={12} onClick={(e) => closeFile(e, f._id)} className="close-icon"/>
+                </div>
+              ))}
+            </div>
+            <div style={{ flex: 1 }}>
+              {activeFile ? (
+                <Editor height="100%" defaultLanguage="r" theme="vs-dark" value={activeFile.content} onChange={handleEditorChange} onMount={(ed) => editorRef.current = ed} options={{ minimap: { enabled: false }, fontSize: 14, automaticLayout: true }} />
+              ) : (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555' }}>Selecteer een bestand om te beginnen</div>
+              )}
             </div>
           </div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>
-            {files.map(f => (
-              <div key={f._id} onClick={() => openFile(f)} style={{ padding: '8px 15px', fontSize: '13px', cursor: 'pointer', background: activeFileId === f._id ? '#37373d' : 'transparent', borderBottom: '1px solid #222' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <FileText size={14} color={f.owner?._id === user.id ? '#3498db' : '#f1c40f'}/>
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
-                  <Trash2 size={12} onClick={(e) => { e.stopPropagation(); deleteFile(f._id); }} style={{ color: '#555' }}/>
+          <div onMouseDown={() => isResizingH.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize' }} />
+          <div style={{ flex: 1, background: '#000', padding: '10px', overflowY: 'auto', textAlign: 'left' }}>
+            <div style={{ fontSize: '10px', color: '#444', fontWeight: 'bold', marginBottom: '5px' }}>R CONSOLE</div>
+            <pre style={{ margin: 0, color: '#2ecc71', fontSize: '13px', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{output}</pre>
+          </div>
+        </div>
+
+        <div onMouseDown={() => isResizingV.current = true} style={{ width: '4px', background: '#111', cursor: 'col-resize' }} />
+
+        {/* Right Column */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ height: `${fileManagerHeight}%`, background: '#252526', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '8px 12px', background: '#2d2d2d', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#888' }}>FILE MANAGER</span>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <FolderPlus size={14} onClick={() => createFile(true)} style={{ cursor: 'pointer' }} />
+                <Plus size={16} onClick={() => createFile(false)} style={{ cursor: 'pointer' }} />
+              </div>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '5px' }}>
+              {files.map(f => (
+                <div key={f._id} onClick={() => openFile(f)} style={{ padding: '6px 10px', fontSize: '13px', cursor: 'pointer', background: activeFileId === f._id ? '#37373d' : 'transparent', display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '4px' }}>
+                  {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color="#3498db"/>}
+                  <span style={{ flex: 1 }}>{f.name}</span>
+                  <Trash2 size={12} onClick={(e) => { e.stopPropagation(); axios.delete(`/api/files/${f._id}`, { headers: { Authorization: `Bearer ${token}` } }).then(fetchFiles); }} style={{ color: '#444' }}/>
                 </div>
-                {user.isAdmin && <div style={{ fontSize: '10px', color: '#555', marginTop: '2px' }}>Eigenaar: {f.owner?.email}</div>}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </aside>
-
-        <main style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ flex: 1 }}>
-            <Editor height="100%" defaultLanguage="r" theme="vs-dark" value={code} onChange={(val) => { setCode(val || ''); if (activeFileId) socket.emit('edit-file', { fileId: activeFileId, content: val, userEmail: user.email }); }} options={{ minimap: { enabled: false }, fontSize: 14, automaticLayout: true }} />
-          </div>
-          <div style={{ height: '200px', background: '#000', padding: '10px', overflowY: 'auto', borderTop: '1px solid #333' }}>
-            <pre style={{ margin: 0, color: '#2ecc71', fontSize: '13px', fontFamily: 'monospace' }}>{output}</pre>
-          </div>
-        </main>
-
-        <aside style={{ width: '400px', background: '#fff', color: '#333', borderLeft: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', background: '#f8f9fa', borderBottom: '1px solid #ddd' }}>
-            <button onClick={() => setRightTab('files')} style={{ flex: 1, padding: '10px', border: 'none', background: rightTab === 'files' ? 'white' : 'transparent', fontSize: '11px', fontWeight: 'bold', borderBottom: rightTab === 'files' ? '2px solid #3498db' : 'none', cursor: 'pointer' }}>VISUALISATIE</button>
-            <button onClick={() => setRightTab('vars')} style={{ flex: 1, padding: '10px', border: 'none', background: rightTab === 'vars' ? 'white' : 'transparent', fontSize: '11px', fontWeight: 'bold', borderBottom: rightTab === 'vars' ? '2px solid #3498db' : 'none', cursor: 'pointer' }}>VARIABELEN</button>
-          </div>
-          
-          <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-            {rightTab === 'files' ? (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px' }}>
-                {plot ? <img src={plot} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} alt="Plot" /> : <Layout size={48} color="#eee"/>}
-              </div>
-            ) : (
-              <div style={{ padding: '15px' }}>
-                {Object.keys(variables).length === 0 ? <div style={{ color: '#999', fontSize: '12px', textAlign: 'center', marginTop: '20px' }}>Voer code uit om variabelen te zien.</div> : 
-                  Object.entries(variables).map(([name, info]: [string, any]) => (
-                    <div key={name} style={{ marginBottom: '15px', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#3498db', fontWeight: 'bold', fontSize: '13px' }}><Database size={12}/> {name}</div>
-                      <div style={{ fontSize: '11px', color: '#888' }}>Type: {info.type}</div>
-                      <pre style={{ margin: '5px 0 0 0', fontSize: '11px', background: '#f4f4f4', padding: '5px', borderRadius: '4px', overflowX: 'auto' }}>{info.summary}</pre>
+          <div onMouseDown={() => isResizingR.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize' }} />
+          <div style={{ flex: 1, background: '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ display: 'flex', background: '#f8f9fa', borderBottom: '1px solid #ddd' }}>
+              <button onClick={() => setRightTab('files')} style={{ flex: 1, padding: '8px', border: 'none', background: rightTab === 'files' ? 'white' : 'transparent', fontSize: '11px', fontWeight: 'bold', borderBottom: rightTab === 'files' ? '2px solid #3498db' : 'none', cursor: 'pointer', color: '#333' }}>PLOT</button>
+              <button onClick={() => setRightTab('vars')} style={{ flex: 1, padding: '8px', border: 'none', background: rightTab === 'vars' ? 'white' : 'transparent', fontSize: '11px', fontWeight: 'bold', borderBottom: rightTab === 'vars' ? '2px solid #3498db' : 'none', cursor: 'pointer', color: '#333' }}>VARIABELEN</button>
+            </div>
+            <div style={{ flex: 1, overflow: 'auto' }}>
+              {rightTab === 'files' ? (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px' }}>
+                  {plot ? <img src={plot} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} alt="R Plot" /> : <Layout size={40} color="#eee"/>}
+                </div>
+              ) : (
+                <div style={{ padding: '15px', color: '#333' }}>
+                  {Object.entries(variables).map(([name, info]: [string, any]) => (
+                    <div key={name} style={{ marginBottom: '10px', borderBottom: '1px solid #eee', paddingBottom: '8px' }}>
+                      <div style={{ fontWeight: 'bold', color: '#2980b9', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '5px' }}><Database size={12}/>{name} <span style={{ fontWeight: 'normal', color: '#999', fontSize: '10px' }}>({info.type})</span></div>
+                      <pre style={{ margin: '4px 0 0 0', fontSize: '11px', background: '#f8f9fa', padding: '4px', whiteSpace: 'pre-wrap' }}>{info.summary}</pre>
                     </div>
-                  ))
-                }
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        </aside>
+        </div>
       </div>
 
       {showAdmin && (
-        <div style={{ position: 'fixed', inset: '50px 0 0 0', background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ position: 'fixed', inset: '45px 0 0 0', background: 'rgba(0,0,0,0.8)', zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }}>
           <div style={{ width: '500px', background: '#252526', height: '100%', padding: '20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2>Gebruikers Beheer</h2>
@@ -277,13 +278,10 @@ function App() {
       )}
 
       <style>{`
-        .btn-run { background: #2ecc71; border: none; padding: 6px 15px; border-radius: 4px; color: white; cursor: pointer; display: flex; alignItems: center; gap: 8px; font-weight: bold; font-size: 13px; }
-        .btn-save { background: #34495e; border: none; padding: 6px 15px; border-radius: 4px; color: white; cursor: pointer; display: flex; alignItems: center; gap: 8px; font-size: 13px; }
-        .btn-share { background: #3498db; border: none; padding: 6px 15px; border-radius: 4px; color: white; cursor: pointer; display: flex; alignItems: center; gap: 8px; font-size: 13px; }
-        .btn-run:hover { background: #27ae60; }
-        .btn-save:hover { background: #2c3e50; }
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        .btn-run { background: #2ecc71; border: none; padding: 4px 12px; border-radius: 4px; color: white; cursor: pointer; display: flex; alignItems: center; gap: 6px; font-weight: bold; font-size: 12px; }
+        .btn-save { background: #34495e; border: none; padding: 4px 12px; border-radius: 4px; color: white; cursor: pointer; display: flex; alignItems: center; gap: 6px; font-size: 12px; }
+        .close-icon { color: #555; border-radius: 2px; }
+        .close-icon:hover { background: #e74c3c; color: white; }
       `}</style>
     </div>
   );

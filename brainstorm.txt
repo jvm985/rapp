@@ -14,3 +14,10 @@ sommige users zijn beheerder, die moeten user beheer kunnen doen, en alle bestan
 joachim.vanmeirvenne@atheneumkapellen.be is beheerder
 maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 
+verbeterpunten
+--------------
+- de groottes van de vensters moeten aanpasbaar zijn
+- welke r code uitvoeren: als code is geselecteerd, enkel de selectie. als niets is geselecteerd, enkel de lijn waar de cursor staat.
+- indeling scherm: twee kolommen, twee rijen. linker kolom: boven r code (met tabs die aangeven in welk bestand je werkt), onder r output. rechter kolom : boven een file manager, onderaan visualisatie en variabelen (zoals het nu is)
+- de filemanager moet ook met mappen om kunnen, plus alles wat hij nu al kan
+- de output van R niet centreren
