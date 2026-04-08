@@ -38,10 +38,10 @@ function App() {
   const [plotDialog, setPlotDialog] = useState<'delete' | 'download' | null>(null);
   const [expandedVars, setExpandedVars] = useState<Set<string>>(new Set());
 
-  // Custom Resize State (Internal use only for dragging)
-  const [leftWidth, _setLeftWidth] = useState(65); 
-  const [editorHeight, _setEditorHeight] = useState(70);
-  const [fileManagerHeight, _setFileManagerHeight] = useState(40);
+  // Custom Resize State
+  const [leftWidth, setLeftWidth] = useState(65); 
+  const [editorHeight, setEditorHeight] = useState(70);
+  const [fileManagerHeight, setFileManagerHeight] = useState(40);
 
   const editorRef = useRef<any>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
@@ -373,10 +373,18 @@ function App() {
     localStorage.setItem('token', data.token); localStorage.setItem('user', JSON.stringify(data.user));
   };
 
-  // Resize Handlers (Placeholder for internal state)
+  // Resize Handlers
   useEffect(() => {
-    const handleMouseMove = (_e: MouseEvent) => {
-      // Logic handled via refs if needed, but keeping state vars for compatibility
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isResizingV.current) setLeftWidth((e.clientX / window.innerWidth) * 100);
+      else if (isResizingH.current) {
+        const newH = (e.clientY / window.innerHeight) * 100;
+        if (newH > 10 && newH < 90) setEditorHeight(newH);
+      }
+      else if (isResizingR.current) {
+        const newH = (e.clientY / window.innerHeight) * 100;
+        if (newH > 10 && newH < 90) setFileManagerHeight(newH);
+      }
     };
     const handleMouseUp = () => { isResizingV.current = false; isResizingH.current = false; isResizingR.current = false; };
     window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);

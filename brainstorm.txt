@@ -83,5 +83,7 @@ verbeterpunten
 - ruim console op: <4be.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
 - ik moet bestanden kunnen verplaatsen en kopieren naar andere mappen (met cut, copy, paste). dat werkt nog niet want als ik een bestand cut, kan ik het niet pasten in een map want knoppen daar niet actief
 - bij uploaden map verschijnent de map en de  bestanden dubbel
+- ik kan panels niet meer resizen
+
 - test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.
  
