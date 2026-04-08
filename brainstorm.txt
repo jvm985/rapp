@@ -47,22 +47,26 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 - wanneer ik library() gebruik in R, moet die in de sessie environment blijven
 - in code editor: als ik op ctrl-enter druk, moet je de uidige lijn naar R sturen. 
 - bij inloggen, open de bestanden die tijdens laatste sessie open waren
+- filemanager: als ik op upload klik, verschijnt ook het "more" menu
+- ik moet bestanden kunnen inlezen met R, vb. data<-read.csv2("data_test.csv")
+- beheerders zijn joachim.vanmeirvenne@atheneumkapellen.be, marc.vaneijmeren@atheneumkapellen.be en ilse.vanroosbroeck@atheneumkapellen.be
+- users moeten ook mappen kunnen delen
+- voorzie op het inlogscherm nog twee knoppen: login als leerling A en leerling B (om te kunnen testen)
+- ik zie geen R resultaten meer in de console, ook geen plots
 
 verbeterpunten
 --------------
 
 - wanneer ik nu een R commando geef, krijg ik in de console altijd iets als dit:
-ryCatch({
-+ 
-< + geom_point() + labs(x="Distance", y="Frequency")
-+     }, error = function(e) { cat("ERROR:", e$message, "\n") })
-    if (dev.cur() > 1) dev.off()
-cat("
+options(device = function(...) { 
 
-- filemanager: als ik op upload klik, verschijnt ook het "more" menu
-- ik moet bestanden kunnen inlezen met R, vb. data<-read.csv2("data_test.csv")
-- beheerders zijn joachim.vanmeirvenne@atheneumkapellen.be, marc.vaneijmeren@atheneumkapellen.be en ilse.vanroosbroeck@atheneumkapellen.be
-- users moeten ook mappen kunnen delen
-- beheerder moeten mappen en bestanden kunnen delen met iedereen
-- voorzie op het inlogscherm nog twee knoppen: login als leerling A en leerling B (om te kunnen testen)
+<3972807ad4e66884be.png", width = 800, height = 600)
+  })
+
+<4be.R", echo=FALSE, verbose=FALSE, print.eval=TRUE)
+
+- beheerder moeten mappen en bestanden kunnen delen met iedereen, door een vinkje te plaatsen, niet "everyone" te typen. Bij de vraag "moet de gebruiker kunnen schrijven" verschijnt een fout dialoogscherm. er moet staan: ja, neen, annuleren.
+
+- navigatie in filemanager met breadcrumbs, niet met ".." om naar boven te gaan
+- het navigeren door gedeelde mappen verloopt foutief
 - test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.

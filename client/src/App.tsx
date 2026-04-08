@@ -57,11 +57,10 @@ function App() {
         
         // Restore open files from user profile
         if (user.openFileIds && user.openFileIds.length > 0) {
-          const restored = allFiles.filter((f: any) => user.openFileIds.includes(f._id));
-          const sharedRestored = shared.filter((f: any) => user.openFileIds.includes(f._id));
-          const combined = [...restored, ...sharedRestored];
-          setOpenFiles(combined.map(f => ({ ...f, draftContent: f.draftContent || f.content || '' })));
-          if (combined.length > 0) setActiveFileId(combined[0]._id);
+          const combined = [...allFiles, ...shared];
+          const restored = combined.filter((f: any) => user.openFileIds.includes(f._id));
+          setOpenFiles(restored.map(f => ({ ...f, draftContent: f.draftContent || f.content || '' })));
+          if (restored.length > 0) setActiveFileId(restored[0]._id);
         }
         
         if (user.isAdmin) fetchUsers();
@@ -129,7 +128,13 @@ function App() {
 
   const openFile = (file: any) => {
     if (file.isFolder) {
-      setCurrentPath(currentPath === '/' ? `/${file.name}/` : `${currentPath}${file.name}/`);
+      // For shared folders, we need to handle the path carefully
+      if (sidebarTab === 'shared') {
+        // Just set the path to folder's path + name
+        setCurrentPath(file.path + file.name + '/');
+      } else {
+        setCurrentPath(currentPath === '/' ? `/${file.name}/` : `${currentPath}${file.name}/`);
+      }
       return;
     }
     if (!openFiles.find(f => f._id === file._id)) {
@@ -243,10 +248,21 @@ function App() {
   const shareSelected = async () => {
     if (selectedFileIds.size !== 1) return;
     const id = Array.from(selectedFileIds)[0];
-    const email = prompt('Email van de gebruiker (gebruik "everyone" om met iedereen te delen):');
-    if (!email) return;
-    const perm = confirm('Mag deze gebruiker schrijven?') ? 'write' : 'read';
     const file = files.find(f => f._id === id);
+    
+    let email = '';
+    if (user.isAdmin && confirm('Delen met iedereen (ja) of specifieke gebruiker (nee)?')) {
+      email = 'everyone';
+    } else {
+      email = prompt('Email van de gebruiker:') || '';
+    }
+    
+    if (!email) return;
+    
+    const writeResponse = prompt('Mag deze gebruiker ook aanpassen? (Typ "ja" voor schrijven, "nee" voor alleen lezen)');
+    if (writeResponse === null) return; // Cancelled
+    const perm = writeResponse.toLowerCase() === 'ja' ? 'write' : 'read';
+    
     const sharedWith = [...(file.sharedWith || []), { email, permission: perm }];
     await axios.put(`/api/files/${id}`, { sharedWith }, { headers: { Authorization: `Bearer ${token}` } });
     fetchFiles();
@@ -371,7 +387,10 @@ function App() {
   }
 
   const breadcrumbs = currentPath.split('/').filter(Boolean);
-  const currentFilesList = sidebarTab === 'my' ? files.filter(f => f.path === currentPath) : sharedFiles;
+  // Shared folders logic: if a folder is shared, its children should appear when currentPath matches its full path.
+  const currentFilesList = sidebarTab === 'my' 
+    ? files.filter(f => f.path === currentPath) 
+    : sharedFiles.filter(f => f.path === currentPath);
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: '#1e1e1e', color: 'white' }}>
@@ -477,8 +496,8 @@ function App() {
             
             <div style={{ background: '#2d2d2d', borderBottom: '1px solid #111', flexShrink: 0 }}>
               <div style={{ display: 'flex', borderBottom: '1px solid #222' }}>
-                <button onClick={() => setSidebarTab('my')} style={{ flex: 1, padding: '8px', background: sidebarTab === 'my' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'my' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>MIJN BESTANDEN</button>
-                <button onClick={() => setSidebarTab('shared')} style={{ flex: 1, padding: '8px', background: sidebarTab === 'shared' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'shared' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>GEDEELD</button>
+                <button onClick={() => { setSidebarTab('my'); setCurrentPath('/'); }} style={{ flex: 1, padding: '8px', background: sidebarTab === 'my' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'my' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>MIJN BESTANDEN</button>
+                <button onClick={() => { setSidebarTab('shared'); setCurrentPath('/'); }} style={{ flex: 1, padding: '8px', background: sidebarTab === 'shared' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'shared' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>GEDEELD</button>
               </div>
               <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#3498db', overflowX: 'auto' }}>
                 <Home size={12} onClick={() => setCurrentPath('/')} style={{ cursor: 'pointer' }} />
@@ -504,15 +523,6 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {currentPath !== '/' && sidebarTab === 'my' && (
-                    <tr onClick={() => {
-                      const parts = currentPath.split('/').filter(Boolean); parts.pop();
-                      setCurrentPath(parts.length ? '/' + parts.join('/') + '/' : '/');
-                    }} style={{ cursor: 'pointer' }}>
-                      <td />
-                      <td colSpan={3} style={{ padding: '5px', color: '#27ae60' }}><div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}><ChevronLeft size={14}/> ..</div></td>
-                    </tr>
-                  )}
                   {currentFilesList.map(f => (
                     <tr key={f._id} onClick={() => openFile(f)} style={{ background: activeFileId === f._id ? '#37373d' : 'transparent', borderBottom: '1px solid #222', cursor: 'pointer' }}>
                       <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedFileIds.has(f._id)} onChange={() => toggleSelect(f._id)}/></td>
