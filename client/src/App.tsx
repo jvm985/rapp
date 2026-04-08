@@ -4,7 +4,7 @@ import Editor from '@monaco-editor/react';
 import { 
   Play, Save, FileText, Layout, LogOut, Plus, Trash2, UserCog, X, 
   FolderPlus, Folder, Database, ChevronRight, Home, Eraser, 
-  Download, Copy, Scissors, Clipboard, Edit3, ChevronLeft,
+  Download, Copy, Scissors, Clipboard, Share2, Edit3, ChevronLeft,
   Users
 } from 'lucide-react';
 import io from 'socket.io-client';
