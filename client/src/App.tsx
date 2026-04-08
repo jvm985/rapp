@@ -5,7 +5,7 @@ import {
   Play, Save, FileText, Layout, LogOut, Plus, Trash2, UserCog, X, 
   FolderPlus, Folder, Database, ChevronRight, Home, Eraser, 
   Download, Copy, Scissors, Clipboard, Share2, Edit3, ChevronLeft,
-  Users
+  Upload, MoreHorizontal, RefreshCw
 } from 'lucide-react';
 import io from 'socket.io-client';
 import axios from 'axios';
@@ -31,8 +31,10 @@ function App() {
   const [sidebarTab, setSidebarTab] = useState<'my' | 'shared'>('my');
   const [currentPath, setCurrentPath] = useState('/');
   
-  // Clipboard state for file manager
-  const [clipboard, setClipboard] = useState<{ id: string, action: 'copy' | 'cut' } | null>(null);
+  // Selection state for file manager
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+  const [clipboard, setClipboard] = useState<{ ids: string[], action: 'copy' | 'cut' } | null>(null);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // Custom Resize State
   const [leftWidth, setLeftWidth] = useState(65); 
@@ -59,7 +61,7 @@ function App() {
 
   useEffect(() => {
     const handleUpdate = (data: any) => {
-      setOpenFiles(prev => prev.map(f => f._id === data.fileId ? { ...f, content: data.content } : f));
+      setOpenFiles(prev => prev.map(f => f._id === data.fileId ? { ...f, draftContent: data.content } : f));
     };
     socket.on('file-updated', handleUpdate);
     return () => { socket.off('file-updated'); };
@@ -110,7 +112,7 @@ function App() {
       return;
     }
     if (!openFiles.find(f => f._id === file._id)) {
-      setOpenFiles([...openFiles, { ...file, content: file.content || '' }]);
+      setOpenFiles([...openFiles, { ...file, draftContent: file.draftContent || file.content || '' }]);
     }
     setActiveFileId(file._id);
   };
@@ -127,8 +129,25 @@ function App() {
   const saveFile = async () => {
     if (!activeFileId || !activeFile) return;
     setIsSaving(true);
-    await axios.put(`/api/files/${activeFileId}`, { content: activeFile.content }, { headers: { Authorization: `Bearer ${token}` } });
-    setIsSaving(false); fetchFiles();
+    await axios.put(`/api/files/${activeFileId}`, { content: activeFile.draftContent }, { headers: { Authorization: `Bearer ${token}` } });
+    setOpenFiles(prev => prev.map(f => f._id === activeFileId ? { ...f, content: activeFile.draftContent } : f));
+    setIsSaving(false); 
+    fetchFiles();
+  };
+
+  const saveDraft = async (id: string, content: string) => {
+    await axios.put(`/api/files/${id}`, { draftContent: content }, { headers: { Authorization: `Bearer ${token}` } });
+  };
+
+  const debouncedSaveDraft = useRef<any>(null);
+
+  const handleEditorChange = (value: any) => {
+    if (!activeFileId) return;
+    setOpenFiles(prev => prev.map(f => f._id === activeFileId ? { ...f, draftContent: value } : f));
+    socket.emit('edit-file', { fileId: activeFileId, content: value, userEmail: user.email });
+    
+    if (debouncedSaveDraft.current) clearTimeout(debouncedSaveDraft.current);
+    debouncedSaveDraft.current = setTimeout(() => saveDraft(activeFileId, value), 1000);
   };
 
   const runCode = async () => {
@@ -167,80 +186,116 @@ function App() {
       if (res.data.plot) {
         const newPlot = `data:image/png;base64,${res.data.plot}`;
         setPlots(prev => [...prev, newPlot]);
-        setPlotIndex(prev => prev + 1);
+        setPlotIndex(plots.length); 
       }
       if (res.data.variables) setVariables(res.data.variables);
     } catch (err) { setOutput(prev => prev + 'Fout bij uitvoeren.\n'); }
   };
 
-  const handleEditorChange = (value: any) => {
-    if (!activeFileId) return;
-    setOpenFiles(prev => prev.map(f => f._id === activeFileId ? { ...f, content: value } : f));
-    socket.emit('edit-file', { fileId: activeFileId, content: value, userEmail: user.email });
+  const toggleSelect = (id: string) => {
+    const next = new Set(selectedFileIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelectedFileIds(next);
   };
 
-  // --- File Manager Actions ---
-  const renameFile = async (file: any) => {
+  const renameSelected = async () => {
+    if (selectedFileIds.size !== 1) return;
+    const id = Array.from(selectedFileIds)[0];
+    const file = files.find(f => f._id === id);
     const newName = prompt('Nieuwe naam:', file.name);
     if (!newName || newName === file.name) return;
-    await axios.put(`/api/files/${file._id}`, { name: newName }, { headers: { Authorization: `Bearer ${token}` } });
+    await axios.put(`/api/files/${id}`, { name: newName }, { headers: { Authorization: `Bearer ${token}` } });
     fetchFiles();
   };
 
-  const shareFile = async (file: any) => {
+  const deleteSelected = async () => {
+    if (selectedFileIds.size === 0) return;
+    if (!confirm(`Zeker weten dat je ${selectedFileIds.size} item(s) wilt verwijderen?`)) return;
+    for (const id of Array.from(selectedFileIds)) {
+      await axios.delete(`/api/files/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (activeFileId === id) { setActiveFileId(null); setOpenFiles(prev => prev.filter(f => f._id !== id)); }
+    }
+    setSelectedFileIds(new Set());
+    fetchFiles();
+  };
+
+  const shareSelected = async () => {
+    if (selectedFileIds.size !== 1) return;
+    const id = Array.from(selectedFileIds)[0];
     const email = prompt('Email van de gebruiker:');
     if (!email) return;
     const perm = confirm('Mag deze gebruiker schrijven?') ? 'write' : 'read';
+    const file = files.find(f => f._id === id);
     const sharedWith = [...(file.sharedWith || []), { email, permission: perm }];
-    await axios.put(`/api/files/${file._id}`, { sharedWith }, { headers: { Authorization: `Bearer ${token}` } });
+    await axios.put(`/api/files/${id}`, { sharedWith }, { headers: { Authorization: `Bearer ${token}` } });
     fetchFiles();
-    alert('Gedeeld!');
+    setShowMoreMenu(false);
   };
 
-  const downloadFile = (file: any) => {
-    const blob = new Blob([file.content || ''], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name.endsWith('.R') ? file.name : `${file.name}.R`;
-    a.click();
+  const copySelected = (action: 'copy' | 'cut') => {
+    if (selectedFileIds.size === 0) return;
+    setClipboard({ ids: Array.from(selectedFileIds), action });
+    setSelectedFileIds(new Set());
+    setShowMoreMenu(false);
   };
 
-  const copyToClipboard = (id: string, action: 'copy' | 'cut') => {
-    setClipboard({ id, action });
-  };
-
-  const pasteFile = async () => {
+  const pasteClipboard = async () => {
     if (!clipboard) return;
-    if (clipboard.action === 'copy') {
-      await axios.post(`/api/files/${clipboard.id}/clone`, { path: currentPath }, { headers: { Authorization: `Bearer ${token}` } });
-    } else {
-      await axios.put(`/api/files/${clipboard.id}`, { path: currentPath }, { headers: { Authorization: `Bearer ${token}` } });
+    for (const id of clipboard.ids) {
+      if (clipboard.action === 'copy') {
+        await axios.post(`/api/files/${id}/clone`, { path: currentPath }, { headers: { Authorization: `Bearer ${token}` } });
+      } else {
+        await axios.put(`/api/files/${id}`, { path: currentPath }, { headers: { Authorization: `Bearer ${token}` } });
+      }
     }
     setClipboard(null);
     fetchFiles();
   };
 
+  const downloadSelected = () => {
+    selectedFileIds.forEach(id => {
+      const file = files.find(f => f._id === id);
+      if (file && !file.isFolder) {
+        const blob = new Blob([file.content || ''], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = file.name.endsWith('.R') ? file.name : `${file.name}.R`;
+        a.click();
+      }
+    });
+    setShowMoreMenu(false);
+  };
+
+  const handleUpload = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.onchange = async (e: any) => {
+      const filesToUpload = e.target.files;
+      for (const file of filesToUpload) {
+        const reader = new FileReader();
+        reader.onload = async (res: any) => {
+          const content = res.target.result;
+          const apiRes = await axios.post('/api/files', { name: file.name, path: currentPath }, { headers: { Authorization: `Bearer ${token}` } });
+          await axios.put(`/api/files/${apiRes.data._id}`, { content }, { headers: { Authorization: `Bearer ${token}` } });
+          fetchFiles();
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
+  };
+
   // Resize Handlers
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (isResizingV.current) {
-        setLeftWidth((e.clientX / window.innerWidth) * 100);
-      } else if (isResizingH.current) {
-        setEditorHeight((e.clientY / window.innerHeight) * 100);
-      } else if (isResizingR.current) {
-        setFileManagerHeight((e.clientY / window.innerHeight) * 100);
-      }
+      if (isResizingV.current) setLeftWidth((e.clientX / window.innerWidth) * 100);
+      else if (isResizingH.current) setEditorHeight((e.clientY / window.innerHeight) * 100);
+      else if (isResizingR.current) setFileManagerHeight((e.clientY / window.innerHeight) * 100);
     };
-    const handleMouseUp = () => {
-      isResizingV.current = false; isResizingH.current = false; isResizingR.current = false;
-    };
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
+    const handleMouseUp = () => { isResizingV.current = false; isResizingH.current = false; isResizingR.current = false; };
+    window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
+    return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp); };
   }, []);
 
   const handleLoginSuccess = async (res: any) => {
@@ -275,9 +330,9 @@ function App() {
           <button onClick={saveFile} className="btn-save"><Save size={12}/> {isSaving ? '...' : 'Save'}</button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          {user.isAdmin && <button onClick={() => setShowAdmin(!showAdmin)} style={{ color: showAdmin ? '#3498db' : '#888', background: 'none', border: 'none', cursor: 'pointer' }}><UserCog size={18}/></button>}
+          {user.isAdmin && <button onClick={() => setShowAdmin(!showAdmin)} style={{ color: showAdmin ? '#3498db' : '#888', background: 'none', border: 'none', cursor: 'pointer' }} title="Beheer"><UserCog size={18}/></button>}
           <span style={{ fontSize: '12px' }}>{user.name}</span>
-          <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><LogOut size={16}/></button>
+          <button onClick={handleLogout} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }} title="Uitloggen"><LogOut size={16}/></button>
         </div>
       </header>
 
@@ -288,29 +343,29 @@ function App() {
             <div style={{ height: '35px', background: '#252526', display: 'flex', overflowX: 'auto', borderBottom: '1px solid #111' }}>
               {openFiles.map(f => (
                 <div key={f._id} onClick={() => setActiveFileId(f._id)} style={{ padding: '0 15px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer', background: activeFileId === f._id ? '#1e1e1e' : '#2d2d2d', borderRight: '1px solid #111', minWidth: '120px' }}>
-                  <FileText size={12} color={f.owner?._id === user.id ? "#3498db" : "#f1c40f"}/>
-                  <span style={{ flex: 1, whiteSpace: 'nowrap' }}>{f.name}</span>
+                  <FileText size={12} color={f.owner?._id === user.id ? (f.draftContent !== f.content ? "#e74c3c" : "#3498db") : "#f1c40f"}/>
+                  <span style={{ flex: 1, whiteSpace: 'nowrap', color: f.draftContent !== f.content ? "#e74c3c" : "inherit" }}>{f.name}</span>
                   <X size={12} onClick={(e) => closeFile(e, f._id)} className="close-icon"/>
                 </div>
               ))}
             </div>
             <div style={{ flex: 1 }}>
               {activeFile ? (
-                <Editor height="100%" defaultLanguage="r" theme="vs-dark" value={activeFile.content} onChange={handleEditorChange} onMount={(ed) => editorRef.current = ed} options={{ minimap: { enabled: false }, fontSize: 14, automaticLayout: true }} />
+                <Editor height="100%" defaultLanguage="r" theme="vs-dark" value={activeFile.draftContent} onChange={handleEditorChange} onMount={(ed) => editorRef.current = ed} options={{ minimap: { enabled: false }, fontSize: 14, automaticLayout: true }} />
               ) : (
                 <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555' }}>Selecteer een bestand om te beginnen</div>
               )}
             </div>
           </div>
           <div onMouseDown={() => isResizingH.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize', zIndex: 10 }} />
-          <div ref={consoleRef} style={{ flex: 1, background: '#000', padding: '10px', overflowY: 'auto', textAlign: 'left', position: 'relative' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '5px' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', overflow: 'hidden' }}>
+            <div style={{ height: '30px', background: '#111', padding: '0 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #222' }}>
               <div style={{ fontSize: '10px', color: '#444', fontWeight: 'bold' }}>R CONSOLE</div>
-              <button onClick={() => setOutput('')} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px' }}>
-                <Eraser size={10} /> Wissen
-              </button>
+              <button onClick={() => setOutput('')} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px' }}><Eraser size={10} /> Wissen</button>
             </div>
-            <pre style={{ margin: 0, color: '#2ecc71', fontSize: '13px', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{output}</pre>
+            <div ref={consoleRef} style={{ flex: 1, padding: '10px', overflowY: 'auto', textAlign: 'left' }}>
+              <pre style={{ margin: 0, color: '#2ecc71', fontSize: '13px', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>{output}</pre>
+            </div>
           </div>
         </div>
 
@@ -319,54 +374,81 @@ function App() {
         {/* Right Column */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           <div style={{ height: `${fileManagerHeight}%`, background: '#252526', display: 'flex', flexDirection: 'column' }}>
+            {/* Screenshot-style Toolbar */}
+            <div style={{ background: '#f8f9fa', color: '#333', padding: '4px 8px', display: 'flex', gap: '10px', borderBottom: '1px solid #ddd', alignItems: 'center', fontSize: '11px' }}>
+              <button onClick={() => createFile(true)} className="toolbar-btn"><FolderPlus size={14} color="#27ae60"/> New Folder</button>
+              <button onClick={() => createFile(false)} className="toolbar-btn"><Plus size={14} color="#27ae60"/> New File</button>
+              <button onClick={handleUpload} className="toolbar-btn"><Upload size={14} color="#f39c12"/> Upload</button>
+              <button onClick={deleteSelected} disabled={selectedFileIds.size === 0} className="toolbar-btn"><Trash2 size={14} color="#e74c3c"/> Delete</button>
+              <button onClick={renameSelected} disabled={selectedFileIds.size !== 1} className="toolbar-btn"><Edit3 size={14} color="#3498db"/> Rename</button>
+              <div style={{ position: 'relative' }}>
+                <button onClick={() => setShowMoreMenu(!showMoreMenu)} disabled={selectedFileIds.size === 0} className="toolbar-btn"><MoreHorizontal size={14}/> More</button>
+                {showMoreMenu && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 20, minWidth: '120px', borderRadius: '4px' }}>
+                    <div onClick={shareSelected} className="menu-item"><Share2 size={12}/> Share</div>
+                    <div onClick={() => copySelected('copy')} className="menu-item"><Copy size={12}/> Copy</div>
+                    <div onClick={() => copySelected('cut')} className="menu-item"><Scissors size={12}/> Cut</div>
+                    <div onClick={downloadSelected} className="menu-item"><Download size={12}/> Download</div>
+                  </div>
+                )}
+              </div>
+              <div style={{ flex: 1 }} />
+              <button onClick={fetchFiles} className="toolbar-btn"><RefreshCw size={14}/></button>
+            </div>
+            
             <div style={{ background: '#2d2d2d', borderBottom: '1px solid #111' }}>
               <div style={{ display: 'flex', borderBottom: '1px solid #222' }}>
-                <button onClick={() => setSidebarTab('my')} style={{ flex: 1, padding: '8px', background: sidebarTab === 'my' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'my' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}><FileText size={12}/> MIJN BESTANDEN</button>
-                <button onClick={() => setSidebarTab('shared')} style={{ flex: 1, padding: '8px', background: sidebarTab === 'shared' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'shared' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}><Users size={12}/> GEDEELD</button>
+                <button onClick={() => setSidebarTab('my')} style={{ flex: 1, padding: '8px', background: sidebarTab === 'my' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'my' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>MIJN BESTANDEN</button>
+                <button onClick={() => setSidebarTab('shared')} style={{ flex: 1, padding: '8px', background: sidebarTab === 'shared' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'shared' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>GEDEELD</button>
               </div>
-              <div style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                {sidebarTab === 'my' ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#3498db', overflowX: 'auto', flex: 1 }}>
-                    <Home size={12} onClick={() => setCurrentPath('/')} style={{ cursor: 'pointer' }} />
-                    {breadcrumbs.map((b, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <ChevronRight size={10} color="#444" />
-                        <span onClick={() => setCurrentPath('/' + breadcrumbs.slice(0, i + 1).join('/') + '/')} style={{ cursor: 'pointer' }}>{b}</span>
-                      </div>
-                    ))}
+              <div style={{ padding: '8px 12px', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: '#3498db', overflowX: 'auto' }}>
+                <Home size={12} onClick={() => setCurrentPath('/')} style={{ cursor: 'pointer' }} />
+                {breadcrumbs.map((b, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <ChevronRight size={10} color="#444" /><span onClick={() => setCurrentPath('/' + breadcrumbs.slice(0, i + 1).join('/') + '/')} style={{ cursor: 'pointer' }}>{b}</span>
                   </div>
-                ) : <span style={{ fontSize: '11px', color: '#888' }}>Gedeeld met mij</span>}
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  {sidebarTab === 'my' && (
-                    <>
-                      {clipboard && <div style={{ cursor: 'pointer', color: '#2ecc71' }} onClick={pasteFile}><Clipboard size={14} /></div>}
-                      <div style={{ cursor: 'pointer', color: '#888' }} onClick={() => createFile(true)}><FolderPlus size={14} /></div>
-                      <div style={{ cursor: 'pointer', color: '#888' }} onClick={() => createFile(false)}><Plus size={16} /></div>
-                    </>
-                  )}
-                </div>
+                ))}
+                {clipboard && sidebarTab === 'my' && (
+                  <div style={{ marginLeft: 'auto', cursor: 'pointer', color: '#2ecc71' }} onClick={pasteClipboard}><Clipboard size={14} /></div>
+                )}
               </div>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '5px' }}>
-              {currentFilesList.length === 0 && <div style={{ textAlign: 'center', padding: '20px', color: '#444', fontSize: '12px' }}>Niets gevonden.</div>}
-              {currentFilesList.map(f => (
-                <div key={f._id} onClick={() => openFile(f)} className="file-item" style={{ padding: '6px 10px', fontSize: '13px', cursor: 'pointer', background: activeFileId === f._id ? '#37373d' : 'transparent', display: 'flex', alignItems: 'center', gap: '8px', borderRadius: '4px' }}>
-                  {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color={f.owner?._id === user.id ? "#3498db" : "#f1c40f"}/>}
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
-                  <div className="file-actions" style={{ display: 'flex', gap: '8px' }}>
-                    {sidebarTab === 'my' && (
-                      <>
-                        <div onClick={(e) => { e.stopPropagation(); downloadFile(f); }}><Download size={12}/></div>
-                        <div onClick={(e) => { e.stopPropagation(); copyToClipboard(f._id, 'copy'); }}><Copy size={12}/></div>
-                        <div onClick={(e) => { e.stopPropagation(); copyToClipboard(f._id, 'cut'); }}><Scissors size={12}/></div>
-                        <div onClick={(e) => { e.stopPropagation(); renameFile(f); }}><Edit3 size={12}/></div>
-                        <div onClick={(e) => { e.stopPropagation(); shareFile(f); }}><Share2 size={12}/></div>
-                        <div onClick={(e) => { e.stopPropagation(); if (confirm('Verwijderen?')) axios.delete(`/api/files/${f._id}`, { headers: { Authorization: `Bearer ${token}` } }).then(fetchFiles); }}><Trash2 size={12}/></div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
+
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', color: '#ccc' }}>
+                <thead style={{ background: '#333', position: 'sticky', top: 0, zIndex: 5 }}>
+                  <tr>
+                    <th style={{ width: '30px', padding: '5px' }}><input type="checkbox" onChange={(e) => setSelectedFileIds(e.target.checked ? new Set(currentFilesList.map(f => f._id)) : new Set())} checked={selectedFileIds.size > 0 && selectedFileIds.size === currentFilesList.length}/></th>
+                    <th style={{ textAlign: 'left', padding: '5px' }}>Name</th>
+                    <th style={{ textAlign: 'right', padding: '5px', width: '60px' }}>Size</th>
+                    <th style={{ textAlign: 'right', padding: '5px', width: '120px' }}>Modified</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {currentPath !== '/' && sidebarTab === 'my' && (
+                    <tr onClick={() => {
+                      const parts = currentPath.split('/').filter(Boolean); parts.pop();
+                      setCurrentPath(parts.length ? '/' + parts.join('/') + '/' : '/');
+                    }} style={{ cursor: 'pointer' }}>
+                      <td />
+                      <td colSpan={3} style={{ padding: '5px', color: '#27ae60' }}><div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}><ChevronLeft size={14}/> ..</div></td>
+                    </tr>
+                  )}
+                  {currentFilesList.map(f => (
+                    <tr key={f._id} onClick={() => openFile(f)} style={{ background: activeFileId === f._id ? '#37373d' : 'transparent', borderBottom: '1px solid #222', cursor: 'pointer' }}>
+                      <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedFileIds.has(f._id)} onChange={() => toggleSelect(f._id)}/></td>
+                      <td style={{ padding: '5px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color={f.owner?._id === user.id ? (f.draftContent !== f.content ? "#e74c3c" : "#3498db") : "#f1c40f"}/>}
+                          <span style={{ color: f.draftContent !== f.content ? "#e74c3c" : "inherit" }}>{f.name}</span>
+                        </div>
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '5px', color: '#666' }}>{f.isFolder ? '' : (f.size > 1024 ? `${(f.size/1024).toFixed(1)} KB` : `${f.size} B`)}</td>
+                      <td style={{ textAlign: 'right', padding: '5px', color: '#666', fontSize: '10px' }}>{new Date(f.lastModified).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
           <div onMouseDown={() => isResizingR.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize', zIndex: 10 }} />
@@ -382,7 +464,7 @@ function App() {
                     <div style={{ position: 'absolute', top: '10px', left: '10px', right: '10px', display: 'flex', justifyContent: 'space-between', zIndex: 5 }}>
                       <div style={{ display: 'flex', gap: '5px' }}>
                         <button onClick={() => setPlotIndex(Math.max(0, plotIndex - 1))} className="plot-btn"><ChevronLeft size={14}/></button>
-                        <span style={{ background: 'rgba(0,0,0,0.1)', padding: '2px 8px', borderRadius: '10px', fontSize: '10px' }}>{plotIndex + 1} / {plots.length}</span>
+                        <span style={{ background: 'rgba(0,0,0,0.1)', padding: '2px 8px', borderRadius: '10px', fontSize: '10px', color: '#333' }}>{plotIndex + 1} / {plots.length}</span>
                         <button onClick={() => setPlotIndex(Math.min(plots.length - 1, plotIndex + 1))} className="plot-btn"><ChevronRight size={14}/></button>
                       </div>
                       <div style={{ display: 'flex', gap: '5px' }}>
@@ -434,13 +516,15 @@ function App() {
       )}
 
       <style>{`
+        .toolbar-btn { background: none; border: 1px solid transparent; padding: 4px 8px; cursor: pointer; display: flex; align-items: center; gap: 5px; border-radius: 3px; font-size: 11px; color: #333; }
+        .toolbar-btn:hover:not(:disabled) { border-color: #ccc; background: #fff; }
+        .toolbar-btn:disabled { opacity: 0.3; cursor: default; }
+        .menu-item { padding: 8px 12px; cursor: pointer; color: #333; font-size: 11px; display: flex; align-items: center; gap: 8px; }
+        .menu-item:hover { background: #f0f2f5; }
         .btn-run { background: #2ecc71; border: none; padding: 4px 12px; border-radius: 4px; color: white; cursor: pointer; display: flex; alignItems: center; gap: 6px; font-weight: bold; font-size: 12px; }
         .btn-save { background: #34495e; border: none; padding: 4px 12px; border-radius: 4px; color: white; cursor: pointer; display: flex; alignItems: center; gap: 6px; font-size: 12px; }
         .close-icon { color: #555; border-radius: 2px; }
         .close-icon:hover { background: #e74c3c; color: white; }
-        .file-item .file-actions { opacity: 0; transition: opacity 0.2s; color: #666; }
-        .file-item:hover .file-actions { opacity: 1; }
-        .file-actions svg:hover { color: #3498db; }
         .plot-btn { background: #eee; border: 1px solid #ddd; border-radius: 4px; padding: 4px; cursor: pointer; color: #666; display: flex; align-items: center; justify-content: center; }
         .plot-btn:hover { background: #e0e0e0; color: #333; }
       `}</style>

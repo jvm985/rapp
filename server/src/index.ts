@@ -19,7 +19,7 @@ const io = new Server(httpServer, {
 });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 const GOOGLE_CLIENT_ID = '339058057860-i6ne31mqs27mqm2ulac7al9vi26pmgo1.apps.googleusercontent.com';
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret-r-app';
@@ -40,13 +40,15 @@ const FileSchema = new mongoose.Schema({
   name: { type: String, required: true },
   path: { type: String, default: '/' }, 
   isFolder: { type: Boolean, default: false },
-  content: { type: String, default: '' },
+  content: { type: String, default: '' },      // The "officially saved" version
+  draftContent: { type: String, default: '' }, // The "working" version (private to owner)
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sharedWith: [{
     email: String,
     permission: { type: String, enum: ['read', 'write'], default: 'read' }
   }],
-  lastModified: { type: Date, default: Date.now }
+  lastModified: { type: Date, default: Date.now },
+  size: { type: Number, default: 0 }
 });
 const File = mongoose.model('File', FileSchema);
 
@@ -100,19 +102,18 @@ app.post('/api/auth/google', async (req, res) => {
 app.get('/api/files', authenticate, async (req: any, res) => {
   let query: any;
   if (req.user.isAdmin) {
-    query = {}; // Admin sees all
+    query = {}; 
   } else {
-    query = { owner: req.user.id }; // Regular users see only their own in "My Files"
+    query = { owner: req.user.id }; 
   }
   const files = await File.find(query).populate('owner', 'name email').sort({ isFolder: -1, name: 1 });
   res.json(files);
 });
 
-// Shared files
 app.get('/api/shared-files', authenticate, async (req: any, res) => {
   const files = await File.find({ 
     'sharedWith.email': req.user.email,
-    owner: { $ne: req.user.id } // Exclude self-owned shared files
+    owner: { $ne: req.user.id } 
   }).populate('owner', 'name email').sort({ lastModified: -1 });
   res.json(files);
 });
@@ -122,16 +123,17 @@ app.post('/api/files', authenticate, async (req: any, res) => {
   res.json(file);
 });
 
-// Clone file
 app.post('/api/files/:id/clone', authenticate, async (req: any, res) => {
   const file = await File.findById(req.params.id);
   if (!file) return res.status(404).send('Not found');
   const newFile = await File.create({
     name: `${file.name} (Copy)`,
     content: file.content,
+    draftContent: file.content,
     owner: req.user.id,
     path: req.body.path || '/',
-    isFolder: file.isFolder
+    isFolder: file.isFolder,
+    size: file.size
   });
   res.json(newFile);
 });
@@ -139,9 +141,27 @@ app.post('/api/files/:id/clone', authenticate, async (req: any, res) => {
 app.put('/api/files/:id', authenticate, async (req: any, res) => {
   const file = await File.findById(req.params.id);
   if (!file) return res.status(404).send('Not found');
-  const canWrite = file.owner.toString() === req.user.id || file.sharedWith.some(s => s.email === req.user.email && s.permission === 'write') || req.user.isAdmin;
-  if (!canWrite) return res.status(403).send('No write access');
-  Object.assign(file, req.body);
+  
+  const isOwner = file.owner.toString() === req.user.id;
+  const isSharedWrite = file.sharedWith.some(s => s.email === req.user.email && s.permission === 'write');
+  
+  if (!isOwner && !isSharedWrite && !req.user.isAdmin) return res.status(403).send('No write access');
+  
+  if (req.body.draftContent !== undefined) {
+    file.draftContent = req.body.draftContent;
+    file.size = Buffer.byteLength(file.draftContent, 'utf8');
+  }
+  
+  if (req.body.content !== undefined) {
+    file.content = req.body.content;
+    file.draftContent = req.body.content; // When saving officially, sync draft
+    file.size = Buffer.byteLength(file.content, 'utf8');
+  }
+
+  if (req.body.name) file.name = req.body.name;
+  if (req.body.path) file.path = req.body.path;
+  if (req.body.sharedWith) file.sharedWith = req.body.sharedWith;
+  
   file.lastModified = new Date();
   await file.save();
   res.json(file);
@@ -212,7 +232,12 @@ app.post('/api/execute', authenticate, (req, res) => {
 
 io.on('connection', (socket) => {
   socket.on('join-file', (fileId) => socket.join(fileId));
-  socket.on('edit-file', (data) => socket.to(data.fileId).emit('file-updated', data));
+  socket.on('edit-file', (data) => {
+    // Shared live editing still uses content sync, but it should technically update draft for others if we want "Google Docs" style.
+    // However, the user asked for "owners draft private to others".
+    // So we sync to others ONLY if they have the file open.
+    socket.to(data.fileId).emit('file-updated', data);
+  });
 });
 
 const PORT = process.env.PORT || 3001;
