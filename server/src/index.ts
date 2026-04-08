@@ -6,7 +6,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
-import { exec } from 'child_process';
+import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 
@@ -40,8 +40,8 @@ const FileSchema = new mongoose.Schema({
   name: { type: String, required: true },
   path: { type: String, default: '/' }, 
   isFolder: { type: Boolean, default: false },
-  content: { type: String, default: '' },      // The "officially saved" version
-  draftContent: { type: String, default: '' }, // The "working" version (private to owner)
+  content: { type: String, default: '' },
+  draftContent: { type: String, default: '' },
   owner: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   sharedWith: [{
     email: String,
@@ -51,6 +51,27 @@ const FileSchema = new mongoose.Schema({
   size: { type: Number, default: 0 }
 });
 const File = mongoose.model('File', FileSchema);
+
+// R Session Management
+const userSessions = new Map<string, { process: ChildProcessWithoutNullStreams, output: string, lastPlot?: string }>();
+
+const getRSession = (userId: string) => {
+  if (userSessions.has(userId)) return userSessions.get(userId)!;
+
+  const rProcess = spawn('R', ['--vanilla', '--quiet', '--interactive']);
+  const session = { process: rProcess, output: '' };
+  
+  rProcess.stdout.on('data', (data) => { session.output += data.toString(); });
+  rProcess.stderr.on('data', (data) => { session.output += data.toString(); });
+  
+  // Setup plot handling
+  rProcess.stdin.write(`options(device = function(...) { 
+    png(file = "/tmp/plot_${userId}.png", width = 800, height = 600)
+  })\n`);
+
+  userSessions.set(userId, session);
+  return session;
+};
 
 // Auth Middleware
 const authenticate = (req: any, res: any, next: any) => {
@@ -68,8 +89,6 @@ const adminOnly = (req: any, res: any, next: any) => {
   if (!req.user.isAdmin) return res.status(403).send('Admin only');
   next();
 };
-
-// --- Routes ---
 
 // Auth
 app.post('/api/auth/mock', async (req, res) => {
@@ -100,12 +119,7 @@ app.post('/api/auth/google', async (req, res) => {
 
 // Files
 app.get('/api/files', authenticate, async (req: any, res) => {
-  let query: any;
-  if (req.user.isAdmin) {
-    query = {}; 
-  } else {
-    query = { owner: req.user.id }; 
-  }
+  let query: any = req.user.isAdmin ? {} : { owner: req.user.id };
   const files = await File.find(query).populate('owner', 'name email').sort({ isFolder: -1, name: 1 });
   res.json(files);
 });
@@ -154,7 +168,7 @@ app.put('/api/files/:id', authenticate, async (req: any, res) => {
   
   if (req.body.content !== undefined) {
     file.content = req.body.content;
-    file.draftContent = req.body.content; // When saving officially, sync draft
+    file.draftContent = req.body.content;
     file.size = Buffer.byteLength(file.content, 'utf8');
   }
 
@@ -186,19 +200,29 @@ app.post('/api/admin/users/:id/toggle-admin', authenticate, adminOnly, async (re
   res.send('Done');
 });
 
-// R Execution
-app.post('/api/execute', authenticate, (req, res) => {
+// Persistent R Execution
+app.post('/api/execute', authenticate, async (req: any, res) => {
   const { code } = req.body;
-  const id = Date.now();
-  const tempFile = path.join('/tmp', `script_${id}.R`);
-  const plotFile = path.join('/tmp', `plot_${id}.png`);
-  const varFile = path.join('/tmp', `vars_${id}.json`);
+  const userId = req.user.id;
+  const session = getRSession(userId);
+  const plotPath = `/tmp/plot_${userId}.png`;
+
+  // Clear previous output for this command
+  session.output = '';
+
+  // To detect when a command is done, we use a sentinel
+  const sentinel = `---DONE-${Date.now()}---`;
   
+  // Wrap code to capture plots and variables
   const wrappedCode = `
+    tryCatch({
+      ${code}
+    }, error = function(e) { cat("ERROR:", e$message, "\\n") })
+    if (dev.cur() > 1) dev.off()
+    cat("${sentinel}\\n")
+    
+    # Capture variables
     library(jsonlite)
-    png("${plotFile}", width=800, height=600)
-    tryCatch({ ${code} }, error = function(e) { cat("ERROR:", e$message, "\\n") })
-    dev.off()
     var_list <- list()
     for (v in ls()) {
       val <- get(v)
@@ -206,38 +230,56 @@ app.post('/api/execute', authenticate, (req, res) => {
         var_list[[v]] <- list(type = class(val)[1], summary = paste(capture.output(str(val)), collapse="\\n"))
       }
     }
-    write_json(var_list, "${varFile}")
+    cat("VARS:", serialize(var_list, NULL, ascii=TRUE), "\\n")
   `;
-  
-  fs.writeFileSync(tempFile, wrappedCode);
-  exec(`Rscript ${tempFile}`, (error, stdout, stderr) => {
-    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-    
-    // Clean up output (remove null device 1)
-    const cleanStdout = stdout.replace(/null device\s*\n\s*1\s*\n/g, '').replace(/null device\s*\n\s*1\s*$/g, '');
 
-    let plotBase64 = null;
-    if (fs.existsSync(plotFile)) {
-      if (fs.statSync(plotFile).size > 5000) plotBase64 = fs.readFileSync(plotFile).toString('base64');
-      fs.unlinkSync(plotFile);
+  session.process.stdin.write(wrappedCode + '\n');
+
+  // Wait for sentinel
+  let checkCount = 0;
+  const waitForDone = setInterval(() => {
+    checkCount++;
+    if (session.output.includes(sentinel) || checkCount > 100) {
+      clearInterval(waitForDone);
+      
+      let finalOutput = session.output.split(sentinel)[0];
+      // Filter out the startup noise if any
+      finalOutput = finalOutput.replace(/^> /gm, '').trim();
+
+      // Extract variables
+      let variables = {};
+      const varMatch = session.output.match(/VARS: (.*)\n/);
+      // Note: serialize/unserialize is complex over text, sticking to jsonlite for variables
+      // But we need a separate way to get them without polluting output
+      
+      // Let's re-run a silent json extraction for variables
+      const varFile = `/tmp/vars_${userId}.json`;
+      session.process.stdin.write(`write_json(var_list, "${varFile}")\n`);
+
+      setTimeout(() => {
+        if (fs.existsSync(varFile)) {
+          try { variables = JSON.parse(fs.readFileSync(varFile, 'utf8')); } catch (e) {}
+          fs.unlinkSync(varFile);
+        }
+
+        let plotBase64 = null;
+        if (fs.existsSync(plotPath)) {
+          if (fs.statSync(plotPath).size > 5000) plotBase64 = fs.readFileSync(plotPath).toString('base64');
+          fs.unlinkSync(plotPath);
+        }
+
+        // Clean up output (remove null device 1 and sentinel)
+        const cleanStdout = finalOutput.replace(/null device\s*\n\s*1\s*/g, '').trim();
+
+        res.json({ stdout: cleanStdout, plot: plotBase64, variables });
+      }, 100);
     }
-    let variables = {};
-    if (fs.existsSync(varFile)) {
-      try { variables = JSON.parse(fs.readFileSync(varFile, 'utf8')); } catch (e) {}
-      fs.unlinkSync(varFile);
-    }
-    res.json({ stdout: cleanStdout, stderr, plot: plotBase64, variables, error: error?.message });
-  });
+  }, 100);
 });
 
 io.on('connection', (socket) => {
   socket.on('join-file', (fileId) => socket.join(fileId));
-  socket.on('edit-file', (data) => {
-    // Shared live editing still uses content sync, but it should technically update draft for others if we want "Google Docs" style.
-    // However, the user asked for "owners draft private to others".
-    // So we sync to others ONLY if they have the file open.
-    socket.to(data.fileId).emit('file-updated', data);
-  });
+  socket.on('edit-file', (data) => socket.to(data.fileId).emit('file-updated', data));
 });
 
 const PORT = process.env.PORT || 3001;

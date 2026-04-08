@@ -31,7 +31,6 @@ function App() {
   const [sidebarTab, setSidebarTab] = useState<'my' | 'shared'>('my');
   const [currentPath, setCurrentPath] = useState('/');
   
-  // Selection state for file manager
   const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
   const [clipboard, setClipboard] = useState<{ ids: string[], action: 'copy' | 'cut' } | null>(null);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -47,9 +46,7 @@ function App() {
   const isResizingV = useRef(false);
   const isResizingR = useRef(false);
 
-  useEffect(() => {
-    document.title = "R";
-  }, []);
+  useEffect(() => { document.title = "R"; }, []);
 
   useEffect(() => {
     if (token) {
@@ -266,17 +263,30 @@ function App() {
     setShowMoreMenu(false);
   };
 
-  const handleUpload = () => {
+  const handleUpload = (isFolder = false) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
+    if (isFolder) {
+      (input as any).webkitdirectory = true;
+      (input as any).directory = true;
+    }
     input.onchange = async (e: any) => {
       const filesToUpload = e.target.files;
       for (const file of filesToUpload) {
         const reader = new FileReader();
         reader.onload = async (res: any) => {
           const content = res.target.result;
-          const apiRes = await axios.post('/api/files', { name: file.name, path: currentPath }, { headers: { Authorization: `Bearer ${token}` } });
+          let uploadPath = currentPath;
+          if (isFolder && file.webkitRelativePath) {
+            const parts = file.webkitRelativePath.split('/');
+            parts.pop(); // Remove file name
+            if (parts.length > 0) {
+              // Ensure folders exist (simplified: just add to path)
+              uploadPath = currentPath + parts.join('/') + '/';
+            }
+          }
+          const apiRes = await axios.post('/api/files', { name: file.name, path: uploadPath }, { headers: { Authorization: `Bearer ${token}` } });
           await axios.put(`/api/files/${apiRes.data._id}`, { content }, { headers: { Authorization: `Bearer ${token}` } });
           fetchFiles();
         };
@@ -290,8 +300,14 @@ function App() {
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isResizingV.current) setLeftWidth((e.clientX / window.innerWidth) * 100);
-      else if (isResizingH.current) setEditorHeight((e.clientY / window.innerHeight) * 100);
-      else if (isResizingR.current) setFileManagerHeight((e.clientY / window.innerHeight) * 100);
+      else if (isResizingH.current) {
+        const newH = (e.clientY / window.innerHeight) * 100;
+        if (newH > 10 && newH < 90) setEditorHeight(newH);
+      }
+      else if (isResizingR.current) {
+        const newH = (e.clientY / window.innerHeight) * 100;
+        if (newH > 10 && newH < 90) setFileManagerHeight(newH);
+      }
     };
     const handleMouseUp = () => { isResizingV.current = false; isResizingH.current = false; isResizingR.current = false; };
     window.addEventListener('mousemove', handleMouseMove); window.addEventListener('mouseup', handleMouseUp);
@@ -339,8 +355,8 @@ function App() {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Left Column */}
         <div style={{ width: `${leftWidth}%`, display: 'flex', flexDirection: 'column', borderRight: '4px solid #111' }}>
-          <div style={{ height: `${editorHeight}%`, display: 'flex', flexDirection: 'column' }}>
-            <div style={{ height: '35px', background: '#252526', display: 'flex', overflowX: 'auto', borderBottom: '1px solid #111' }}>
+          <div style={{ height: `${editorHeight}%`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ height: '35px', background: '#252526', display: 'flex', overflowX: 'auto', borderBottom: '1px solid #111', flexShrink: 0 }}>
               {openFiles.map(f => (
                 <div key={f._id} onClick={() => setActiveFileId(f._id)} style={{ padding: '0 15px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer', background: activeFileId === f._id ? '#1e1e1e' : '#2d2d2d', borderRight: '1px solid #111', minWidth: '120px' }}>
                   <FileText size={12} color={f.owner?._id === user.id ? (f.draftContent !== f.content ? "#e74c3c" : "#3498db") : "#f1c40f"}/>
@@ -349,17 +365,33 @@ function App() {
                 </div>
               ))}
             </div>
-            <div style={{ flex: 1 }}>
+            <div style={{ flex: 1, minHeight: 0 }}>
               {activeFile ? (
-                <Editor height="100%" defaultLanguage="r" theme="vs-dark" value={activeFile.draftContent} onChange={handleEditorChange} onMount={(ed) => editorRef.current = ed} options={{ minimap: { enabled: false }, fontSize: 14, automaticLayout: true }} />
+                <Editor 
+                  height="100%" 
+                  defaultLanguage="r" 
+                  theme="vs-dark" 
+                  value={activeFile.draftContent} 
+                  onChange={handleEditorChange} 
+                  onMount={(ed, monaco) => { 
+                    editorRef.current = ed;
+                    ed.addAction({
+                      id: 'run-r-code',
+                      label: 'Run R Code',
+                      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+                      run: () => { runCode(); }
+                    });
+                  }} 
+                  options={{ minimap: { enabled: false }, fontSize: 14, automaticLayout: true }} 
+                />
               ) : (
                 <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555' }}>Selecteer een bestand om te beginnen</div>
               )}
             </div>
           </div>
-          <div onMouseDown={() => isResizingH.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize', zIndex: 10 }} />
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', overflow: 'hidden' }}>
-            <div style={{ height: '30px', background: '#111', padding: '0 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #222' }}>
+          <div onMouseDown={() => isResizingH.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize', zIndex: 10, flexShrink: 0 }} />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#000', overflow: 'hidden', minHeight: 0 }}>
+            <div style={{ height: '30px', background: '#111', padding: '0 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #222', flexShrink: 0 }}>
               <div style={{ fontSize: '10px', color: '#444', fontWeight: 'bold' }}>R CONSOLE</div>
               <button onClick={() => setOutput('')} style={{ background: 'none', border: 'none', color: '#444', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px' }}><Eraser size={10} /> Wissen</button>
             </div>
@@ -369,16 +401,24 @@ function App() {
           </div>
         </div>
 
-        <div onMouseDown={() => isResizingV.current = true} style={{ width: '4px', background: '#111', cursor: 'col-resize', zIndex: 10 }} />
+        <div onMouseDown={() => isResizingV.current = true} style={{ width: '4px', background: '#111', cursor: 'col-resize', zIndex: 10, flexShrink: 0 }} />
 
         {/* Right Column */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ height: `${fileManagerHeight}%`, background: '#252526', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ height: `${fileManagerHeight}%`, background: '#252526', display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
             {/* Screenshot-style Toolbar */}
-            <div style={{ background: '#f8f9fa', color: '#333', padding: '4px 8px', display: 'flex', gap: '10px', borderBottom: '1px solid #ddd', alignItems: 'center', fontSize: '11px' }}>
+            <div style={{ background: '#f8f9fa', color: '#333', padding: '4px 8px', display: 'flex', gap: '10px', borderBottom: '1px solid #ddd', alignItems: 'center', fontSize: '11px', flexShrink: 0 }}>
               <button onClick={() => createFile(true)} className="toolbar-btn"><FolderPlus size={14} color="#27ae60"/> New Folder</button>
               <button onClick={() => createFile(false)} className="toolbar-btn"><Plus size={14} color="#27ae60"/> New File</button>
-              <button onClick={handleUpload} className="toolbar-btn"><Upload size={14} color="#f39c12"/> Upload</button>
+              <div style={{ position: 'relative' }}>
+                <button className="toolbar-btn" onClick={() => setShowMoreMenu(!showMoreMenu)}><Upload size={14} color="#f39c12"/> Upload</button>
+                {showMoreMenu && (
+                  <div style={{ position: 'absolute', top: '100%', left: 0, background: 'white', border: '1px solid #ddd', boxShadow: '0 2px 10px rgba(0,0,0,0.1)', zIndex: 20, minWidth: '120px', borderRadius: '4px' }}>
+                    <div onClick={() => { handleUpload(false); setShowMoreMenu(false); }} className="menu-item">Bestanden</div>
+                    <div onClick={() => { handleUpload(true); setShowMoreMenu(false); }} className="menu-item">Map</div>
+                  </div>
+                )}
+              </div>
               <button onClick={deleteSelected} disabled={selectedFileIds.size === 0} className="toolbar-btn"><Trash2 size={14} color="#e74c3c"/> Delete</button>
               <button onClick={renameSelected} disabled={selectedFileIds.size !== 1} className="toolbar-btn"><Edit3 size={14} color="#3498db"/> Rename</button>
               <div style={{ position: 'relative' }}>
@@ -396,7 +436,7 @@ function App() {
               <button onClick={fetchFiles} className="toolbar-btn"><RefreshCw size={14}/></button>
             </div>
             
-            <div style={{ background: '#2d2d2d', borderBottom: '1px solid #111' }}>
+            <div style={{ background: '#2d2d2d', borderBottom: '1px solid #111', flexShrink: 0 }}>
               <div style={{ display: 'flex', borderBottom: '1px solid #222' }}>
                 <button onClick={() => setSidebarTab('my')} style={{ flex: 1, padding: '8px', background: sidebarTab === 'my' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'my' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>MIJN BESTANDEN</button>
                 <button onClick={() => setSidebarTab('shared')} style={{ flex: 1, padding: '8px', background: sidebarTab === 'shared' ? '#252526' : 'transparent', border: 'none', color: sidebarTab === 'shared' ? 'white' : '#666', fontSize: '10px', fontWeight: 'bold', cursor: 'pointer' }}>GEDEELD</button>
@@ -414,7 +454,7 @@ function App() {
               </div>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto' }}>
+            <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', color: '#ccc' }}>
                 <thead style={{ background: '#333', position: 'sticky', top: 0, zIndex: 5 }}>
                   <tr>
@@ -439,8 +479,8 @@ function App() {
                       <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selectedFileIds.has(f._id)} onChange={() => toggleSelect(f._id)}/></td>
                       <td style={{ padding: '5px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color={f.owner?._id === user.id ? (f.draftContent !== f.content ? "#e74c3c" : "#3498db") : "#f1c40f"}/>}
-                          <span style={{ color: f.draftContent !== f.content ? "#e74c3c" : "inherit" }}>{f.name}</span>
+                          {f.isFolder ? <Folder size={14} color="#f1c40f"/> : <FileText size={14} color={f.owner?._id === user.id ? "#3498db" : "#f1c40f"}/>}
+                          <span>{f.name}</span>
                         </div>
                       </td>
                       <td style={{ textAlign: 'right', padding: '5px', color: '#666' }}>{f.isFolder ? '' : (f.size > 1024 ? `${(f.size/1024).toFixed(1)} KB` : `${f.size} B`)}</td>
@@ -451,13 +491,13 @@ function App() {
               </table>
             </div>
           </div>
-          <div onMouseDown={() => isResizingR.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize', zIndex: 10 }} />
-          <div style={{ flex: 1, background: '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ display: 'flex', background: '#f8f9fa', borderBottom: '1px solid #ddd' }}>
+          <div onMouseDown={() => isResizingR.current = true} style={{ height: '4px', background: '#111', cursor: 'row-resize', zIndex: 10, flexShrink: 0 }} />
+          <div style={{ flex: 1, background: '#fff', display: 'flex', flexDirection: 'column', overflow: 'hidden', minHeight: 0 }}>
+            <div style={{ display: 'flex', background: '#f8f9fa', borderBottom: '1px solid #ddd', flexShrink: 0 }}>
               <button onClick={() => setRightTab('files')} style={{ flex: 1, padding: '8px', border: 'none', background: rightTab === 'files' ? 'white' : 'transparent', fontSize: '11px', fontWeight: 'bold', borderBottom: rightTab === 'files' ? '2px solid #3498db' : 'none', cursor: 'pointer', color: '#333' }}>PLOT</button>
               <button onClick={() => setRightTab('vars')} style={{ flex: 1, padding: '8px', border: 'none', background: rightTab === 'vars' ? 'white' : 'transparent', fontSize: '11px', fontWeight: 'bold', borderBottom: rightTab === 'vars' ? '2px solid #3498db' : 'none', cursor: 'pointer', color: '#333' }}>VARIABELEN</button>
             </div>
-            <div style={{ flex: 1, overflow: 'auto' }}>
+            <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
               {rightTab === 'files' ? (
                 <div style={{ height: '100%', display: 'flex', flexDirection: 'column', position: 'relative' }}>
                   {plots.length > 0 && (

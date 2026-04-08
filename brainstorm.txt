@@ -38,12 +38,17 @@ maak een test@gemini.com user/beheerder  zodat jij bij alles inloggen en testen
 - voorzie een favicon R
 - titel van de app is R, niet R editor. voorzie dit ook voor titelvenster browser
 - schrijf een volledige technische documentatie van de R app, zodat je volgende sessie dat kan lezen en direct mee bent met alles. bewaar dat in technisch.txt
-
-verbeterpunten
---------------
-- editor: toon de naam van het bestand in het rood wanneer niet bewaarde wijzigingen. Maar bewaar altijd alles, zodat er nooit wijzigingen verloren gaan. Dus: een gebruiker kan een bestand hebben dat niet bewaard is, maar wanneer hij uitlogt en weer in, moet datzelfde niet bewaarde bestand er zijn. Het punt is dat wanneer een andere gebruiker dat bestand opent, hij de wijzigingen niet kan zien van de eigenaar. Snap je?
+- R editor: toon de naam van het bestand (tab) in het rood wanneer niet bewaarde wijzigingen. Maar bewaar altijd alles, zodat er nooit wijzigingen verloren gaan. Dus: een gebruiker kan een bestand hebben dat niet bewaard is, maar wanneer hij uitlogt en weer in, moet datzelfde niet bewaarde bestand er zijn. Het punt is dat wanneer een andere gebruiker dat bestand opent, hij de wijzigingen niet kan zien van de eigenaar. Snap je?
 - R console: de titel en wisknop blijven altijd zichtbaar, zodat je er niet voor naar boven moet scrollen
 - plots: als R een nieuwe plot genereert, spring in het venster dan naar die nieuwe plot
 - filemanager: uploaden knop voor bestanden van lokale schijf up te loaden; meerdere bestanden en mappen uploaden mogelijk maken
 - filemanager: ipv voor elk bestanden iconen, doe het zoals in het screenshot bestand dat ik hier plaatste
+
+verbeterpunten
+--------------
+- filemanager: daar moet je de bestanden niet in het rood tonen wanneer ze zijn gewijzigd
+- filemanager: ik kan geen map uploaden
+- wanneer ik library() gebruik in R, moet ik dat bij de volgende functieaanroep weer doen. De library blijft niet in de environment. Fix dat.
+- wanneer ik panel console naar boven uitrek, verdwijnt dat onder het R code panel. fix.
+- in code editor: als ik op ctrl-enter druk, moet je de uidige lijn naar R sturen. 
 - test front en backend grondig voor je zegt dat je klaar bent en fix errors en deploy dan opnieuw, en blijf dit herhalen tot alles zonder fouten werkt.
